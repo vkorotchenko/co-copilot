@@ -17,7 +17,7 @@
     "flash": "node src/index.js --flash",
     "setup": "node scripts/setup.js",
     "uninstall": "node scripts/setup.js --uninstall",
-    "test": "node test/mcp-roundtrip.js && node test/ota-flash.js && node test/permwatch.js && node test/entries.js"
+    "test": "node test/mcp-roundtrip.js && node test/ota-flash.js && node test/permwatch.js && node test/entries.js && node test/central.js"
   },
   "engines": {
     "node": ">=18"

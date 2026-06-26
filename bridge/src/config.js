@@ -48,6 +48,10 @@ module.exports = {
     // in this long and rescan. Guards against a hung BLE bring-up (e.g. a
     // stale OS bond stalling the encryption handshake) wedging the bridge.
     connectTimeoutMs: parseInt(process.env.COMPANION_CONNECT_TIMEOUT_MS || '15000', 10),
+    // macOS self-heal: if noble scans this long without ever finding the device,
+    // macOS has likely grabbed the bonded link (so it stops advertising); shell
+    // out to `blueutil --disconnect` to release it. 0 disables.
+    recoverStallMs: parseInt(process.env.COMPANION_BLE_RECOVER_MS || '45000', 10),
   },
 
   // --- Timing --------------------------------------------------------------

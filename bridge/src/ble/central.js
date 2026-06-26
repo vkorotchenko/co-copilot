@@ -1,8 +1,24 @@
 'use strict';
 
 const EventEmitter = require('events');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const { LineFramer } = require('../protocol/lineframer');
 const log = require('../util/log');
+
+const execFileP = promisify(execFile);
+
+// Pull the bonded device's address out of `blueutil --paired` output, matching
+// the configured name prefix. Lines look like:
+//   address: 48-27-e2-e3-c9-25, connected (master, 0 dBm), ..., name: "Copilot-C924"
+function parseBondedAddress(stdout, namePrefix) {
+  for (const line of String(stdout || '').split('\n')) {
+    if (line.indexOf(`name: "${namePrefix}`) === -1) continue;
+    const m = /address:\s*([0-9a-f:-]+)/i.exec(line);
+    if (m) return m[1];
+  }
+  return null;
+}
 
 // BLE central transport. Scans for a peripheral advertising the Nordic UART
 // Service whose name starts with the configured prefix ("Copilot"), connects,
@@ -27,6 +43,14 @@ class BleCentral extends EventEmitter {
     this._writeQueue = Promise.resolve();
     this._framer = new LineFramer((line) => this._onDeviceLine(line));
     this._stopped = false;
+    // macOS self-heal: when noble keeps scanning without ever finding the
+    // device, macOS has usually auto-reconnected to the bonded peripheral and
+    // is holding the link (so it stops advertising and noble can't see it).
+    // After this long stalled, we shell out to `blueutil --disconnect` to
+    // release the OS hold; the device re-advertises and noble reclaims it.
+    this._recoverStallMs = cfg.ble.recoverStallMs || 0;
+    this._recoverTimer = null;
+    this._recovering = false;
   }
 
   start() {
@@ -56,8 +80,49 @@ class BleCentral extends EventEmitter {
       await this._noble.startScanningAsync([this._cfg.serviceUuid], false);
       log.info(`Scanning for "${this._cfg.namePrefix}*" devices...`);
       this.emit('scanning');
+      this._scheduleRecovery();
     } catch (err) {
       log.error('startScanning failed:', err.message);
+    }
+  }
+
+  // Arm the stall-recovery check (macOS only). Re-armed each time scanning
+  // (re)starts; cleared once a link is up.
+  _scheduleRecovery() {
+    if (this._recoverTimer) { clearTimeout(this._recoverTimer); this._recoverTimer = null; }
+    if (this._stopped || process.platform !== 'darwin' || this._recoverStallMs <= 0) return;
+    this._recoverTimer = setTimeout(() => this._onScanStall(), this._recoverStallMs);
+  }
+
+  _cancelRecovery() {
+    if (this._recoverTimer) { clearTimeout(this._recoverTimer); this._recoverTimer = null; }
+  }
+
+  async _onScanStall() {
+    this._recoverTimer = null;
+    if (this._stopped || this.connected || this._peripheral) return; // connected/connecting
+    await this._attemptRecovery();
+    // Still stuck? keep trying on the same cadence.
+    if (!this._stopped && !this.connected && !this._peripheral) this._scheduleRecovery();
+  }
+
+  // Best-effort: ask blueutil to drop the OS-held connection so the device
+  // re-advertises. No-ops harmlessly if blueutil is absent or the device isn't
+  // actually held. The ongoing noble scan then rediscovers + connects.
+  async _attemptRecovery() {
+    if (this._recovering) return;
+    this._recovering = true;
+    try {
+      const { stdout } = await execFileP('blueutil', ['--paired']);
+      const addr = parseBondedAddress(stdout, this._cfg.namePrefix);
+      if (!addr) { log.debug('BLE recovery: no bonded device matched.'); return; }
+      log.warn(`Scan stalled ~${Math.round(this._recoverStallMs / 1000)}s; ` +
+        `releasing OS hold on ${addr} (blueutil --disconnect).`);
+      await execFileP('blueutil', ['--disconnect', addr]);
+    } catch (err) {
+      log.debug('BLE recovery skipped:', err.message);
+    } finally {
+      this._recovering = false;
     }
   }
 
@@ -91,6 +156,7 @@ class BleCentral extends EventEmitter {
         this._chunk = peripheral.mtu - 3;
       }
       log.info(`Connected to ${name} (chunk=${this._chunk}B).`);
+      this._cancelRecovery();
       this.emit('connected', name);
     } catch (err) {
       log.error('Connect failed:', err.message);
@@ -188,6 +254,7 @@ class BleCentral extends EventEmitter {
 
   async stop() {
     this._stopped = true;
+    this._cancelRecovery();
     try {
       if (this._noble) await this._noble.stopScanningAsync();
       if (this._peripheral) await this._peripheral.disconnectAsync();
@@ -196,4 +263,4 @@ class BleCentral extends EventEmitter {
   }
 }
 
-module.exports = { BleCentral };
+module.exports = { BleCentral, parseBondedAddress };
