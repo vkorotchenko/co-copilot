@@ -84,10 +84,18 @@ async function main() {
     return;
   }
 
-  const source = args.simulate ? new SimulateSource(cfg) : new CopilotSource(cfg);
+  const bridge = new Bridge(transport, cfg);
+  const source = args.simulate
+    ? new SimulateSource(cfg)
+    : new CopilotSource(cfg, {
+        usageSessionIds: () =>
+          bridge.registry
+            .list()
+            .map((record) => record.conversation_id)
+            .filter(Boolean),
+      });
   log.info(args.simulate ? 'Source: simulated activity' : 'Source: Copilot CLI');
 
-  const bridge = new Bridge(transport, cfg);
   source.on('model', (model) => bridge.setModel(model));
 
   let mcp = null;

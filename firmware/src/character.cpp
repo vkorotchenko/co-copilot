@@ -54,11 +54,13 @@ static void gifPlace() {
   gifY = peekMode ? (PEEK_TOP - outH) / 2 : (140 - outH) / 2;
 }
 static uint32_t    nextFrameAt = 0;
+static bool        frozen = false;
 static uint32_t    animPauseUntil = 0;
 static uint32_t    variantStartedMs = 0;
 static const uint32_t VARIANT_DWELL_MS = 5000;
 static const uint32_t ANIM_PAUSE_MS    = 800;
 static bool        gifOpen = false;
+static bool        frameRendered = false;
 
 static uint16_t parseHexColor(const char* s, uint16_t fallback) {
   if (!s) return fallback;
@@ -100,6 +102,7 @@ static int32_t gifSeekCb(GIFFILE* pFile, int32_t iPosition) {
 // paints its region — no ghosting from prior frames.
 
 static void gifDrawCb(GIFDRAW* d) {
+  frameRendered = true;
   uint16_t* pal16 = d->pPalette;
   uint8_t*  src   = d->pPixels;
   uint8_t   t     = d->ucTransparent;
@@ -138,6 +141,7 @@ static void gifDrawCb(GIFDRAW* d) {
 // --- Public -------------------------------------------------------------
 
 bool characterInit(const char* name) {
+  frameRendered = false;
   if (!LittleFS.begin(false)) {
     // begin() fails if already mounted — that's fine on reload
     if (!LittleFS.open("/")) {
@@ -276,10 +280,12 @@ void characterClose() {
   loaded = false;
   textMode = false;
   curState = 0xFF;
+  frameRendered = false;
 }
 
 void characterInvalidate() {
   if (!loaded) return;
+  frameRendered = false;
   if (textMode) {
     spr.fillSprite(pal.bg);
     uint8_t s = curState; curState = 0xFF;
@@ -294,6 +300,7 @@ void characterInvalidate() {
 
 void characterSetState(uint8_t s) {
   if (!loaded || s >= N_STATES || s == curState) return;
+  frameRendered = false;
 
   if (textMode) {
     curState = s;
@@ -330,8 +337,11 @@ void characterSetState(uint8_t s) {
   }
 }
 
+void characterSetFrozen(bool value) { frozen = value; }
+bool characterFrameRendered() { return frameRendered; }
+
 void characterTick() {
-  if (!loaded) return;
+  if (!loaded || frozen) return;
 
   if (textMode) {
     TextState& ts = textStates[curState];
@@ -352,6 +362,7 @@ void characterTick() {
     spr.setTextSize(2);
     spr.setCursor((spr.width() - tw) / 2, cy - 8);
     spr.print(line);
+    frameRendered = true;
 
     textFrame = (textFrame + 1) % ts.nFrames;
     return;

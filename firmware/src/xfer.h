@@ -4,6 +4,14 @@
 #include "ble_bridge.h"
 #include <mbedtls/base64.h>
 #include <ArduinoJson.h>
+#include "completion_latch.h"
+
+#define COMPLETION_LATCH_ENABLED 1
+#if COMPLETION_LATCH_ENABLED
+#define COMPLETION_LATCH_STATUS_FIELD "\"cl\":1,"
+#else
+#define COMPLETION_LATCH_STATUS_FIELD ""
+#endif
 
 #ifndef FW_VERSION
 #define FW_VERSION "dev"
@@ -124,7 +132,7 @@ inline bool xferCommand(JsonDocument& doc) {
     char b[360];
     int len = snprintf(b, sizeof(b),
       "{\"ack\":\"status\",\"ok\":true,\"n\":0,\"data\":{"
-      "\"name\":\"%s\",\"owner\":\"%s\",\"sec\":%s,\"fw\":\"%s\","
+      "\"name\":\"%s\",\"owner\":\"%s\",\"sec\":%s,\"fw\":\"%s\"," COMPLETION_LATCH_STATUS_FIELD
       "\"bat\":{\"pct\":%d,\"mV\":%d,\"mA\":%d,\"usb\":%s},"
       "\"sys\":{\"up\":%lu,\"heap\":%u,\"fsFree\":%lu,\"fsTotal\":%lu},"
       "\"stats\":{\"appr\":%u,\"deny\":%u,\"vel\":%u,\"nap\":%lu,\"lvl\":%u}"

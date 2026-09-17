@@ -12,12 +12,14 @@ bool characterInit(const char* name);
 bool characterLoaded();
 
 // 0..6: sleep, idle, busy, attention, celebrate, dizzy, heart.
-// Closes current GIF, opens the one for this state. No-op if same state.
+// Closes current GIF and opens the requested state. No-op if it is unchanged.
 void characterSetState(uint8_t state);
 
 // Advances timing; if it's time for the next frame, decodes it into the
 // sprite. Call every loop iteration. Does nothing if not loaded.
 void characterTick();
+bool characterFrameRendered();
+void characterSetFrozen(bool frozen);
 void characterInvalidate();
 void characterClose();   // close GIF + clear loaded flag; FS stays mounted   // full clear + reopen current — call when an overlay closes
 

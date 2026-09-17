@@ -152,6 +152,8 @@ static void doCelebrate(uint32_t t) {
   uint8_t beat = (t / 3) % sizeof(SEQ);
   buddyPrintSprite(P[SEQ[beat]], 5, Y_SHIFT[beat], 0x07F0);
 
+  if (!buddyCelebrationEffectsEnabled()) return;
+
   static const uint16_t cols[] = { BUDDY_YEL, BUDDY_HEART, BUDDY_CYAN, 0x07F0, BUDDY_GREEN };
   for (int i = 0; i < 6; i++) {
     int phase = (t * 2 + i * 11) % 22;

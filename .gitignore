@@ -10,5 +10,10 @@ npm-debug.log*
 firmware/.pio/
 firmware/data/
 
+# Patch / merge backups
+*.orig
+*.rej
+*.bak
+
 # OS
 .DS_Store

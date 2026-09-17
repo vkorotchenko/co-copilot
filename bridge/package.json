@@ -17,7 +17,7 @@
     "flash": "node src/index.js --flash",
     "setup": "node scripts/setup.js",
     "uninstall": "node scripts/setup.js --uninstall",
-    "test": "node test/mcp-roundtrip.js && node test/ota-flash.js && node test/permwatch.js && node test/entries.js && node test/central.js"
+    "test": "node test/mcp-roundtrip.js && node test/sessions.js && node test/completion-latch.js && node test/completion-latch-acceptance.js && node test/completion-races.js && node test/completion-echo-guards.js && node test/completion-guard-watermark.js && node test/confirm-queue.js && node test/http-api.js && node test/session-projection.js && node test/snapshot-budget.js && node test/snapshot-backcompat.js && node test/ble-coalesce.js && node test/ota-flash.js && node test/permwatch.js && node test/permwatch-prompt.js && node test/permwatch-edges.js && node test/timestamps.js && node test/store-sessions.js && node test/logtail-multi.js && node test/source-focus.js && node test/entries.js && node test/central.js"
   },
   "engines": {
     "node": ">=18"

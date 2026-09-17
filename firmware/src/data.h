@@ -5,6 +5,9 @@
 #include "xfer.h"
 #include "ota.h"
 #include "hw.h"
+#include "session_pals.h"
+#include "completion_latch_json.h"
+#include "transcript_state.h"
 
 struct TamaState {
   uint8_t  sessionsTotal;
@@ -22,14 +25,21 @@ struct TamaState {
   char     lines[8][160];
   uint8_t  nLines;
   uint16_t lineGen;          // bumps when lines change — lets UI reset scroll
+  TranscriptLinkState transcriptLink;
   char     promptId[40];     // pending permission request ID; empty = no prompt
   char     promptTool[20];
   char     promptHint[44];
+  // Optional per-session projection (wire `sv`/`ss`). count == 0 means the
+  // bridge sent a legacy aggregate-only heartbeat and the UI stays legacy.
+  SessionPalSet sessions;
+  SessionHeartTracker heartTracker;
+  SessionHeartQueue heartAwards;
+  CompletionMirror completion;
 };
 
 // ---------------------------------------------------------------------------
 // Three modes, checked in priority order:
-//   demo   → auto-cycle fake scenarios every 8s, ignore live data
+//   demo   → auto-cycle a browsable fake pal roster every 8s, ignore live data
 //   live   → JSON arrived in the last 10s over USB or BT
 //   asleep → no data, all zeros, "No Copilot connected"
 // ---------------------------------------------------------------------------
@@ -42,16 +52,22 @@ static uint32_t _demoNext   = 0;
 
 struct _Fake { const char* n; uint8_t t,r,w; bool c; uint32_t tok; };
 static const _Fake _FAKES[] = {
-  {"asleep",0,0,0,false,0}, {"one idle",1,0,0,false,12000},
-  {"busy",4,3,0,false,89000}, {"attention",2,1,1,false,45000},
-  {"completed",1,0,0,true,142000},
+  {"all idle",5,0,0,false,12000}, {"thinking",5,1,0,false,32000},
+  {"team busy",5,3,0,false,89000}, {"attention",5,1,2,false,112000},
+  {"completed",5,0,0,true,142000},
+  {"assertive",5,0,0,false,155000},
 };
+static_assert(sizeof(_FAKES) / sizeof(_FAKES[0]) == SESSION_DEMO_SCENARIOS,
+              "demo aggregate scenarios must match the pal projection");
 
 inline void dataSetDemo(bool on) {
   _demoMode = on;
-  if (on) { _demoIdx = 0; _demoNext = millis(); }
+  if (on) { _demoIdx = 0; _demoNext = millis() + 8000; }
 }
 inline bool dataDemo() { return _demoMode; }
+inline bool dataDemoAssertive() {
+  return _demoMode && _demoIdx == SESSION_DEMO_ASSERTIVE;
+}
 
 inline bool dataConnected() {
   return _lastLiveMs != 0 && (millis() - _lastLiveMs) <= 30000;
@@ -76,6 +92,9 @@ inline bool dataRtcValid() { return _rtcValid; }
 static void _applyJson(const char* line, TamaState* out) {
   JsonDocument doc;
   if (deserializeJson(doc, line)) return;
+  const uint32_t now = millis();
+  const char* incomingCmd = doc["cmd"];
+  if (incomingCmd && strcmp(incomingCmd, "ota_begin") == 0) out->completion.clearForOta();
   if (otaCommand(doc)) { _lastLiveMs = millis(); return; }
   if (xferCommand(doc)) { _lastLiveMs = millis(); return; }
 
@@ -92,12 +111,18 @@ static void _applyJson(const char* line, TamaState* out) {
     return;
   }
 
+  const uint8_t previousRunning = out->sessionsRunning;
+  char previousPromptId[sizeof(out->promptId)];
+  memcpy(previousPromptId, out->promptId, sizeof(previousPromptId));
+  SessionPalSet previousSessions = out->sessions;
+  const bool completedPulse = doc["completed"] | false;
+
   out->sessionsTotal     = doc["total"]     | out->sessionsTotal;
   out->sessionsRunning   = doc["running"]   | out->sessionsRunning;
   out->sessionsWaiting   = doc["waiting"]   | out->sessionsWaiting;
-  out->recentlyCompleted = doc["completed"] | false;
-  uint32_t bridgeTokens = doc["tokens"] | 0;
-  if (doc["tokens"].is<uint32_t>()) statsOnBridgeTokens(bridgeTokens);
+  if (doc["tokens"].is<uint32_t>()) {
+    statsOnBridgeTokens(doc["tokens"].as<uint32_t>());
+  }
   out->tokensToday = doc["tokens_today"] | out->tokensToday;
   out->tokensUsed  = doc["tokens_used"]  | out->tokensUsed;
   out->tokensMax   = doc["tokens_max"]   | out->tokensMax;
@@ -109,17 +134,12 @@ static void _applyJson(const char* line, TamaState* out) {
   if (eff) { strncpy(out->effort, eff, sizeof(out->effort)-1); out->effort[sizeof(out->effort)-1]=0; }
   JsonArray la = doc["entries"];
   if (!la.isNull()) {
+    char nextLines[8][160] = {};
     uint8_t n = 0;
     for (JsonVariant v : la) {
-      if (n >= 8) break;
-      const char* s = v.as<const char*>();
-      strncpy(out->lines[n], s ? s : "", 159); out->lines[n][159]=0;
-      n++;
+      if (!transcriptAppendParsedRow(nextLines, n, v.as<const char*>())) break;
     }
-    if (n != out->nLines || (n > 0 && strcmp(out->lines[n-1], out->msg) != 0)) {
-      out->lineGen++;
-    }
-    out->nLines = n;
+    transcriptApplyRows(out->lines, out->nLines, out->lineGen, nextLines, n);
   }
   JsonObject pr = doc["prompt"];
   if (!pr.isNull()) {
@@ -130,7 +150,28 @@ static void _applyJson(const char* line, TamaState* out) {
   } else {
     out->promptId[0] = 0; out->promptTool[0] = 0; out->promptHint[0] = 0;
   }
-  out->lastUpdated = millis();
+  // Additive per-session projection. Absent or unknown `sv` resets to the
+  // legacy aggregate view, which is exactly what an older build would show.
+  SessionPalSet nextSessions = out->sessions;
+  sessionPalsApply(doc.as<JsonVariantConst>(), nextSessions);
+  const bool projectedWork = sessionPalsNewWorking(previousSessions, nextSessions);
+  sessionHeartObserve(nextSessions, out->heartTracker, out->heartAwards);
+  out->sessions = nextSessions;
+
+  CompletionApplyResult completionResult = completionApplySnapshot(
+    doc.as<JsonVariantConst>(), out->completion, now);
+  if (completionResult == COMPLETION_NO_MODERN) {
+    const bool legacyAuthority = !out->completion.epochKnown;
+    const bool newPrompt = out->promptId[0] && strcmp(previousPromptId, out->promptId) != 0;
+    const bool runningEdge = previousRunning == 0 && out->sessionsRunning > 0;
+    out->completion.observeLegacy(completedPulse, newPrompt || runningEdge || projectedWork, now);
+    // A legacy pulse observed during a modern bridge's capability gap must not
+    // drive the legacy celebration either: the modern latch still owns it.
+    out->recentlyCompleted = legacyAuthority && completedPulse;
+  } else {
+    out->recentlyCompleted = false;
+  }
+  out->lastUpdated = now;
   _lastLiveMs = millis();
 }
 
@@ -156,11 +197,20 @@ inline void dataPoll(TamaState* out) {
   uint32_t now = millis();
 
   if (_demoMode) {
-    if (now >= _demoNext) { _demoIdx = (_demoIdx + 1) % 5; _demoNext = now + 8000; }
+    if ((int32_t)(now - _demoNext) >= 0) {
+      _demoIdx = (_demoIdx + 1) % SESSION_DEMO_SCENARIOS;
+      _demoNext = now + 8000;
+    }
     const _Fake& s = _FAKES[_demoIdx];
     out->sessionsTotal=s.t; out->sessionsRunning=s.r; out->sessionsWaiting=s.w;
     out->recentlyCompleted=s.c; out->tokensToday=s.tok; out->lastUpdated=now;
     out->connected = true;
+    sessionPalsDemoApply(_demoIdx, out->sessions);
+    sessionHeartTrackerClear(out->heartTracker);
+    sessionHeartQueueClear(out->heartAwards);
+    out->promptId[0] = 0;
+    out->promptTool[0] = 0;
+    out->promptHint[0] = 0;
     snprintf(out->msg, sizeof(out->msg), "demo: %s", s.n);
     return;
   }
@@ -182,10 +232,21 @@ inline void dataPoll(TamaState* out) {
     }
   }
 
+  static bool wasBleConnected = false;
+  bool isBleConnected = bleConnected();
+  if (wasBleConnected && !isBleConnected) out->completion.onDisconnect();
+  wasBleConnected = isBleConnected;
+  out->completion.watchdog(now);
+
   out->connected = dataConnected();
+  transcriptObserveConnection(
+    out->transcriptLink, out->connected, out->lines, out->nLines, out->lineGen);
   if (!out->connected) {
     out->sessionsTotal=0; out->sessionsRunning=0; out->sessionsWaiting=0;
     out->recentlyCompleted=false; out->lastUpdated=now;
+    sessionPalsClear(out->sessions);
+    sessionHeartTrackerClear(out->heartTracker);
+    sessionHeartQueueClear(out->heartAwards);
     strncpy(out->msg, "No Copilot connected", sizeof(out->msg)-1);
     out->msg[sizeof(out->msg)-1]=0;
   }

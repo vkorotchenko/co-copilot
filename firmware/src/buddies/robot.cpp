@@ -150,6 +150,7 @@ static void doCelebrate(uint32_t t) {
   buddyPrintSprite(P[SEQ[beat]], 5, Y_SHIFT[beat], 0xC618);
 
   // Sparks and bolts shooting out
+  if (!buddyCelebrationEffectsEnabled()) return;
   static const uint16_t cols[] = { BUDDY_YEL, BUDDY_CYAN, BUDDY_GREEN, BUDDY_WHITE, BUDDY_PURPLE };
   for (int i = 0; i < 6; i++) {
     int phase = (t * 2 + i * 11) % 22;

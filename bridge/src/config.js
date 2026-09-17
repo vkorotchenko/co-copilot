@@ -2,6 +2,7 @@
 
 const os = require('os');
 const path = require('path');
+const { normalizeConfirmQueue, normalizeDeviceProjectionMax } = require('./bridge');
 
 const COPILOT_HOME =
   process.env.COPILOT_HOME || path.join(os.homedir(), '.copilot');
@@ -31,6 +32,51 @@ module.exports = {
     recentWindowMs: parseInt(process.env.COMPANION_PERM_WINDOW_MS || String(30 * 60 * 1000), 10),
     // Suppress requests younger than this so fast auto-approvals don't flash.
     minAgeMs: parseInt(process.env.COMPANION_PERM_MIN_AGE_MS || '1500', 10),
+    // Ceiling on a captured live prompt before it is compared/rendered. The
+    // device shows ~150 characters; the extra headroom exists so the
+    // de-duplication against the persisted turn row has enough text to be
+    // unambiguous.
+    maxPromptChars: parseInt(process.env.COMPANION_PROMPT_MAX_CHARS || '600', 10),
+    // On first sight of an events file we replay its tail to recover pending /
+    // waiting state. A user.message found in that replay only counts as the
+    // *current* question if it is this recent — otherwise restarting the bridge
+    // would show a long-finished prompt as live work.
+    promptPrimeWindowMs: parseInt(
+      process.env.COMPANION_PROMPT_PRIME_MS || String(2 * 60 * 1000), 10
+    ),
+    // Initial event-tail recovery may need to cross a large tool result to find
+    // the current user.message. PermissionWatch scans this window in 256 KiB
+    // chunks and clamps it to 256 KiB..64 MiB.
+    primeMaxBytes: parseInt(
+      process.env.COMPANION_PROMPT_PRIME_BYTES || String(32 * 1024 * 1024), 10
+    ),
+    // Stop treating an interrupted prompt as live after its session has been
+    // completely quiet for this long.
+    promptMaxQuietMs: parseInt(
+      process.env.COMPANION_PROMPT_MAX_QUIET_MS || String(30 * 60 * 1000), 10
+    ),
+    // Bound synchronous startup recovery fan-out; remaining recent sessions are
+    // picked up on later one-second polls.
+    maxPrimeFilesPerUpdate: parseInt(
+      process.env.COMPANION_PROMPT_PRIME_FILES || '2', 10
+    ),
+    // A session counts as "active" for transcript-focus ranking when anything
+    // happened in it this recently.
+    focusActiveWindowMs: parseInt(process.env.COMPANION_FOCUS_ACTIVE_MS || '60000', 10),
+  },
+
+  // --- Process-log tail ----------------------------------------------------
+  // Every CLI process writes its own process-*.log, so concurrent sessions mean
+  // concurrent files. The tail tracks each one independently (its own AI-request
+  // group stack) and aggregates, rather than following only the newest-mtime
+  // file — which used to discard an in-flight request whenever the other log
+  // became newest.
+  logs: {
+    // Only follow logs touched within this window (plus any still holding an
+    // open AI request, which is never dropped mid-flight).
+    recentWindowMs: parseInt(process.env.COMPANION_LOG_WINDOW_MS || String(30 * 60 * 1000), 10),
+    // Hard cap on simultaneously tracked logs; newest-mtime wins.
+    maxFiles: parseInt(process.env.COMPANION_LOG_MAX_FILES || '8', 10),
   },
 
   // --- BLE / Nordic UART Service -------------------------------------------
@@ -72,17 +118,59 @@ module.exports = {
     port: parseInt(process.env.COMPANION_MCP_PORT || '4317', 10),
   },
 
+  // --- Explicit session registry (event-driven state) ----------------------
+  // A top-level session orchestrator registers one long-lived conversation,
+  // reports each task through companion_state / companion_task_complete, and
+  // calls companion_session_end only when retiring the conversation. Spawned
+  // agents report back to the orchestrator rather than creating records.
+  // Active work holds a lease: if the reporter crashes or goes quiet, the pal
+  // falls back to idle without losing its conversation identity/configuration.
+  sessions: {
+    defaultTtlMs: parseInt(process.env.COMPANION_SESSION_TTL_MS || '90000', 10),
+    // Bounds applied to caller-supplied ttl_seconds (values outside clamp in).
+    minTtlMs: parseInt(process.env.COMPANION_SESSION_MIN_TTL_MS || '5000', 10),
+    maxTtlMs: parseInt(process.env.COMPANION_SESSION_MAX_TTL_MS || String(60 * 60 * 1000), 10),
+    // Hard cap on tracked sessions; eviction is ended-first, then least-
+    // recently-updated, then creation time and id for deterministic ties.
+    maxSessions: parseInt(process.env.COMPANION_SESSION_MAX || '64', 10),
+    // Firmware MAX_SESSION_PALS is eight. Keeping the bridge projection at or
+    // below that ceiling bounds both fixed device RAM and the newline-delimited
+    // JSON wire budget; larger values cannot make more rows visible safely.
+    deviceProjectionMax: normalizeDeviceProjectionMax(
+      process.env.COMPANION_DEVICE_PROJECTION_MAX
+    ),
+    // How long an ended session stays visible (so status can report the
+    // outcome) before it is pruned.
+    endedLingerMs: parseInt(process.env.COMPANION_SESSION_ENDED_MS || '10000', 10),
+  },
+
+  // --- Device confirmations ------------------------------------------------
+  confirm: {
+    // Simultaneous companion_confirm calls are served FIFO. Beyond this depth
+    // new questions resolve immediately as `unavailable` rather than piling up
+    // behind a screen that can only show one prompt at a time.
+    //
+    // Parsed by the *same* normalizer the Bridge applies to whatever it is
+    // handed (see normalizeConfirmQueue in bridge.js), so an env var and a
+    // programmatically-supplied cfg cannot disagree about what `0`, a negative,
+    // a fraction or a typo means. Values below the floor of 1 clamp up rather
+    // than being honoured: the screen shows one prompt at a time, so 1 already
+    // means "no queueing", while a literal 0 would make every confirmation
+    // resolve `unavailable` and silently disable the hardware approval gate.
+    // Unparseable values fall back to the default.
+    maxQueue: normalizeConfirmQueue(process.env.COMPANION_CONFIRM_QUEUE),
+  },
+
   // --- Activity heuristics -------------------------------------------------
   // A session counts as "active/total" if it produced a turn within this window.
   activeWindowMs: 5 * 60 * 1000,
   // The active log file growing within this window means a session is "running".
   busyWindowMs: 20 * 1000,
   // How long the device shows the "celebrate" animation after a turn finishes.
-  // Completion is detected the instant a new turn row appears (a real turn
-  // boundary), then held this long so the animation is actually visible; new
-  // model activity cancels it early. (Decoupled from busyWindowMs on purpose —
-  // the old "not busy AND turn within 5s" check lost the race to the 20s grace,
-  // so celebrations fired ~20s late or not at all.)
+  // Current clients provide the boundary immediately through
+  // session.task_complete; a new turn row remains the older-client fallback.
+  // The legacy pulse is held this long so it is visible, while modern firmware
+  // persists the latched completion until dismissal or new work.
   completedHoldMs: 6 * 1000,
   // Max recent transcript entries to send (device stores up to 8).
   maxEntries: 6,

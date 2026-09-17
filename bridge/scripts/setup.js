@@ -57,6 +57,12 @@ function serviceEnv() {
   for (const k of [
     'COMPANION_LOGS_DIR', 'COMPANION_MCP_PORT', 'COMPANION_MCP_HOST',
     'COMPANION_NAME_PREFIX', 'COPILOT_HOME',
+    // Only an explicit override is carried through. The bridge resolves
+    // blueutil itself at runtime (see src/ble/blueutil.js) precisely because
+    // this service inherits a bare PATH, so baking a discovered path here would
+    // duplicate that logic and could go stale if Homebrew moves or blueutil is
+    // installed after setup ran.
+    'COMPANION_BLUEUTIL',
   ]) {
     if (process.env[k]) env[k] = process.env[k];
   }

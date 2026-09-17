@@ -14,9 +14,12 @@ help: ## Show all available targets
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-28s\033[0m %s\n", $$1, $$2}'
 
 # ---- firmware -------------------------------------------------------------
-.PHONY: build upload monitor clean
+.PHONY: build upload monitor clean firmware-test
 build: ## Build the M5Dial firmware
 	cd firmware && pio run
+
+firmware-test: ## Run firmware host tests (session-pal parser/UI logic, no hardware)
+	./firmware/test/run-host-tests.sh
 
 upload: ## Build + USB-flash the firmware to a connected device
 	cd firmware && pio run -t upload

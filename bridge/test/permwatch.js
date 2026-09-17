@@ -32,6 +32,15 @@ function doneLine(requestId, tsIso) {
   }) + '\n';
 }
 
+function taskCompleteLine(id, success, tsIso) {
+  return JSON.stringify({
+    type: 'session.task_complete',
+    data: { summary: 'done', success },
+    id,
+    timestamp: tsIso,
+  }) + '\n';
+}
+
 function run() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'permwatch-'));
   const sessDir = path.join(root, 'sess-1');
@@ -135,6 +144,106 @@ function run() {
   assert.strictEqual(waitWatch.waitingForUser(), false, 'completing ask_user clears waiting');
 
   fs.rmSync(w2root, { recursive: true, force: true });
+
+  // --- immediate task completion ------------------------------------------
+  const croot = fs.mkdtempSync(path.join(os.tmpdir(), 'permwatch-c-'));
+  fs.mkdirSync(path.join(croot, 'parent'));
+  const cev = path.join(croot, 'parent', 'events.jsonl');
+  const historicalAt = new Date(Date.now() - 5000).toISOString();
+  fs.writeFileSync(
+    cev,
+    JSON.stringify({
+      type: 'user.message',
+      data: { content: 'historical task' },
+      id: 'u-old',
+      timestamp: historicalAt,
+    }) + '\n' +
+    taskCompleteLine('done-old', true, historicalAt)
+  );
+  const completionWatch = new PermissionWatch({
+    sessionStateDir: croot,
+    perm: { minAgeMs: 0, recentWindowMs: 60 * 60 * 1000 },
+  });
+  assert.strictEqual(
+    completionWatch.sessionOwnership('legacy-without-events'),
+    'unavailable',
+    'missing event streams preserve the SQLite completion fallback'
+  );
+  completionWatch.update();
+  assert.strictEqual(
+    completionWatch.completionEdge(),
+    null,
+    'startup replay establishes completion support without celebrating history'
+  );
+  const currentAt = new Date().toISOString();
+  fs.appendFileSync(
+    cev,
+    JSON.stringify({
+      type: 'user.message',
+      data: { content: 'current task' },
+      id: 'u-current',
+      timestamp: currentAt,
+    }) + '\n' +
+    taskCompleteLine('done-current', false, currentAt)
+  );
+  completionWatch.update();
+  const completion = completionWatch.completionEdge();
+  assert.ok(completion, 'a live task_complete event is exposed immediately');
+  assert.strictEqual(completion.sessionId, 'parent');
+  assert.strictEqual(completion.outcome, 'failed');
+  assert.strictEqual(JSON.parse(completion.id)[1], 'done-current');
+
+  fs.appendFileSync(
+    cev,
+    JSON.stringify({
+      type: 'assistant.message',
+      data: { toolRequests: [] },
+      id: 'final-answer',
+      timestamp: new Date().toISOString(),
+    }) + '\n'
+  );
+  completionWatch.update();
+  assert.strictEqual(
+    completionWatch.waitingForUser(),
+    true,
+    'a final assistant message enters the waiting state before task completion'
+  );
+  fs.appendFileSync(cev, taskCompleteLine('done-after-answer', true, new Date().toISOString()));
+  completionWatch.update();
+  assert.strictEqual(
+    completionWatch.waitingForUser(),
+    false,
+    'task_complete clears waiting for its exact session so the completion card can surface'
+  );
+  const parentCompletion = completionWatch.completionEdge();
+  assert.strictEqual(
+    JSON.parse(parentCompletion.id)[1],
+    'done-after-answer',
+    'the latest parent completion remains the active edge'
+  );
+
+  fs.mkdirSync(path.join(croot, 'child'));
+  const child = path.join(croot, 'child', 'events.jsonl');
+  fs.writeFileSync(
+    child,
+    JSON.stringify({
+      type: 'user.message',
+      data: { content: 'delegated work', source: 'agent-child' },
+      id: 'u-child',
+      timestamp: currentAt,
+    }) + '\n'
+  );
+  completionWatch.update(); // prime delegated session
+  assert.strictEqual(completionWatch.sessionOwnership('parent'), 'human');
+  assert.strictEqual(completionWatch.sessionOwnership('child'), 'delegated');
+  fs.appendFileSync(child, taskCompleteLine('done-child', true, new Date().toISOString()));
+  completionWatch.update();
+  assert.strictEqual(
+    completionWatch.completionEdge().id,
+    parentCompletion.id,
+    'a spawned-agent completion cannot replace the parent completion'
+  );
+  fs.rmSync(croot, { recursive: true, force: true });
   fs.rmSync(root, { recursive: true, force: true });
   console.log('PASS: PermissionWatch detects prompts, stale/aborted, and waiting-for-user');
 }

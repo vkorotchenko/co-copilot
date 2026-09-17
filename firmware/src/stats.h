@@ -176,6 +176,11 @@ inline uint8_t statsFedProgress() {
 
 // --- Settings --------------------------------------------------------------
 
+enum AttitudeMode : uint8_t {
+  ATTITUDE_KIND = 0,
+  ATTITUDE_ASSERTIVE = 1,
+};
+
 struct Settings {
   bool sound;
   bool bt;
@@ -183,9 +188,10 @@ struct Settings {
   bool led;
   bool hud;
   uint8_t clockRot;  // 0=auto 1=portrait 2=landscape
+  uint8_t attitude;
 };
 
-static Settings _settings = { false, true, false, true, true, 0 };
+static Settings _settings = { false, true, false, true, true, 0, ATTITUDE_KIND };
 
 inline void settingsLoad() {
   _prefs.begin("buddy", true);
@@ -195,7 +201,9 @@ inline void settingsLoad() {
   _settings.led   = _prefs.getBool("s_led", true);
   _settings.hud      = _prefs.getBool("s_hud", true);
   _settings.clockRot = _prefs.getUChar("s_crot", 0);
+  _settings.attitude = _prefs.getUChar("s_att", ATTITUDE_KIND);
   if (_settings.clockRot > 2) _settings.clockRot = 0;
+  if (_settings.attitude > ATTITUDE_ASSERTIVE) _settings.attitude = ATTITUDE_KIND;
   _prefs.end();
 }
 
@@ -207,6 +215,7 @@ inline void settingsSave() {
   _prefs.putBool("s_led", _settings.led);
   _prefs.putBool("s_hud", _settings.hud);
   _prefs.putUChar("s_crot", _settings.clockRot);
+  _prefs.putUChar("s_att", _settings.attitude);
   _prefs.end();
 }
 

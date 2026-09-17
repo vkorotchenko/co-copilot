@@ -1,0 +1,284 @@
+{
+  "_meta": {
+    "generated_against": "c015035",
+    "note": "Frozen golden baseline of legacy buildSnapshot() output before the additive sv/ss session projection. This fixture must not be regenerated from the implementation under test."
+  },
+  "cases": [
+    {
+      "name": "empty",
+      "expected_to_change": false,
+      "model": {
+        "total": 0,
+        "running": 0,
+        "waiting": 0,
+        "completed": false,
+        "msg": "idle",
+        "entries": []
+      },
+      "snapshot": {
+        "total": 0,
+        "running": 0,
+        "waiting": 0,
+        "completed": false,
+        "msg": "idle",
+        "entries": []
+      },
+      "serialized": "{\"total\":0,\"running\":0,\"waiting\":0,\"completed\":false,\"msg\":\"idle\",\"entries\":[]}\n",
+      "byte_length": 80,
+      "byte_length_no_newline": 79
+    },
+    {
+      "name": "idle_one_session",
+      "expected_to_change": false,
+      "model": {
+        "total": 1,
+        "running": 0,
+        "waiting": 0,
+        "completed": false,
+        "msg": "idle",
+        "entries": []
+      },
+      "snapshot": {
+        "total": 1,
+        "running": 0,
+        "waiting": 0,
+        "completed": false,
+        "msg": "idle",
+        "entries": []
+      },
+      "serialized": "{\"total\":1,\"running\":0,\"waiting\":0,\"completed\":false,\"msg\":\"idle\",\"entries\":[]}\n",
+      "byte_length": 80,
+      "byte_length_no_newline": 79
+    },
+    {
+      "name": "busy_counts",
+      "expected_to_change": false,
+      "model": {
+        "total": 7,
+        "running": 4,
+        "waiting": 2,
+        "completed": true,
+        "msg": "working...",
+        "entries": []
+      },
+      "snapshot": {
+        "total": 7,
+        "running": 4,
+        "waiting": 2,
+        "completed": true,
+        "msg": "working...",
+        "entries": []
+      },
+      "serialized": "{\"total\":7,\"running\":4,\"waiting\":2,\"completed\":true,\"msg\":\"working...\",\"entries\":[]}\n",
+      "byte_length": 85,
+      "byte_length_no_newline": 84
+    },
+    {
+      "name": "with_entries",
+      "expected_to_change": false,
+      "model": {
+        "total": 2,
+        "running": 1,
+        "waiting": 0,
+        "completed": false,
+        "msg": "reading transcript",
+        "entries": [
+          "short entry",
+          "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+          "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+          "final entry"
+        ]
+      },
+      "snapshot": {
+        "total": 2,
+        "running": 1,
+        "waiting": 0,
+        "completed": false,
+        "msg": "reading transcript",
+        "entries": [
+          "short entry",
+          "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+          "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO",
+          "final entry"
+        ]
+      },
+      "serialized": "{\"total\":2,\"running\":1,\"waiting\":0,\"completed\":false,\"msg\":\"reading transcript\",\"entries\":[\"short entry\",\"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\",\"OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO\",\"final entry\"]}\n",
+      "byte_length": 445,
+      "byte_length_no_newline": 444
+    },
+    {
+      "name": "with_telemetry",
+      "expected_to_change": false,
+      "model": {
+        "total": 3,
+        "running": 2,
+        "waiting": 1,
+        "completed": false,
+        "msg": "measuring tokens",
+        "entries": [],
+        "tokens": 123456789,
+        "tokensToday": 987654321,
+        "tokensUsed": 654321,
+        "tokensMax": 1048576,
+        "model": "claude-opus-4.8-long-model-name",
+        "effort": "extra-high-effort"
+      },
+      "snapshot": {
+        "total": 3,
+        "running": 2,
+        "waiting": 1,
+        "completed": false,
+        "msg": "measuring tokens",
+        "entries": [],
+        "tokens": 123456789,
+        "tokens_today": 987654321,
+        "tokens_used": 654321,
+        "tokens_max": 1048576,
+        "model": "claude-opus-4.8-long-mo",
+        "effort": "extra-hig"
+      },
+      "serialized": "{\"total\":3,\"running\":2,\"waiting\":1,\"completed\":false,\"msg\":\"measuring tokens\",\"entries\":[],\"tokens\":123456789,\"tokens_today\":987654321,\"tokens_used\":654321,\"tokens_max\":1048576,\"model\":\"claude-opus-4.8-long-mo\",\"effort\":\"extra-hig\"}\n",
+      "byte_length": 233,
+      "byte_length_no_newline": 232
+    },
+    {
+      "name": "with_prompt",
+      "expected_to_change": true,
+      "change_note": "prompt.id will gain a 39-character clamp per the approved session-pals proposal.",
+      "model": {
+        "total": 2,
+        "running": 1,
+        "waiting": 1,
+        "completed": true,
+        "msg": "confirm on device",
+        "entries": [
+          "13:00 awaiting approval"
+        ],
+        "tokens": 42,
+        "tokensToday": 84,
+        "tokensUsed": 21,
+        "tokensMax": 128,
+        "model": "test-model",
+        "effort": "medium",
+        "prompt": {
+          "id": "permission-request-id-that-is-deliberately-longer-than-thirty-nine-characters",
+          "tool": "dangerously-long-tool-name",
+          "hint": "Approve this deliberately overlong permission hint for the compatibility fixture"
+        }
+      },
+      "snapshot": {
+        "total": 2,
+        "running": 1,
+        "waiting": 1,
+        "completed": true,
+        "msg": "confirm on device",
+        "entries": [
+          "13:00 awaiting approval"
+        ],
+        "tokens": 42,
+        "tokens_today": 84,
+        "tokens_used": 21,
+        "tokens_max": 128,
+        "model": "test-model",
+        "effort": "medium",
+        "prompt": {
+          "id": "permission-request-id-that-is-deliberately-longer-than-thirty-nine-characters",
+          "tool": "dangerously-long-to",
+          "hint": "Approve this deliberately overlong permissi"
+        }
+      },
+      "serialized": "{\"total\":2,\"running\":1,\"waiting\":1,\"completed\":true,\"msg\":\"confirm on device\",\"entries\":[\"13:00 awaiting approval\"],\"tokens\":42,\"tokens_today\":84,\"tokens_used\":21,\"tokens_max\":128,\"model\":\"test-model\",\"effort\":\"medium\",\"prompt\":{\"id\":\"permission-request-id-that-is-deliberately-longer-than-thirty-nine-characters\",\"tool\":\"dangerously-long-to\",\"hint\":\"Approve this deliberately overlong permissi\"}}\n",
+      "byte_length": 398,
+      "byte_length_no_newline": 397
+    },
+    {
+      "name": "msg_overlong",
+      "expected_to_change": false,
+      "model": {
+        "total": 1,
+        "running": 0,
+        "waiting": 1,
+        "completed": false,
+        "msg": "this message is definitely longer than twenty-three characters",
+        "entries": []
+      },
+      "snapshot": {
+        "total": 1,
+        "running": 0,
+        "waiting": 1,
+        "completed": false,
+        "msg": "this message is definit",
+        "entries": []
+      },
+      "serialized": "{\"total\":1,\"running\":0,\"waiting\":1,\"completed\":false,\"msg\":\"this message is definit\",\"entries\":[]}\n",
+      "byte_length": 99,
+      "byte_length_no_newline": 98
+    },
+    {
+      "name": "clamp_extremes",
+      "expected_to_change": false,
+      "model": {
+        "total": 9999,
+        "running": 512,
+        "waiting": 256,
+        "completed": true,
+        "msg": "extremes",
+        "entries": [],
+        "tokens": 8589934591,
+        "tokensToday": 9007199254740991,
+        "tokensUsed": 4294967296,
+        "tokensMax": 8589934592
+      },
+      "snapshot": {
+        "total": 255,
+        "running": 255,
+        "waiting": 255,
+        "completed": true,
+        "msg": "extremes",
+        "entries": [],
+        "tokens": 4294967295,
+        "tokens_today": 4294967295,
+        "tokens_used": 4294967295,
+        "tokens_max": 4294967295
+      },
+      "serialized": "{\"total\":255,\"running\":255,\"waiting\":255,\"completed\":true,\"msg\":\"extremes\",\"entries\":[],\"tokens\":4294967295,\"tokens_today\":4294967295,\"tokens_used\":4294967295,\"tokens_max\":4294967295}\n",
+      "byte_length": 184,
+      "byte_length_no_newline": 183
+    },
+    {
+      "name": "unicode_and_escapes",
+      "expected_to_change": false,
+      "model": {
+        "total": 2,
+        "running": 1,
+        "waiting": 1,
+        "completed": false,
+        "msg": "say \"hi\" \\ ctrl:\u0001 😀 漢字 tail",
+        "entries": [
+          "quote: \"double\"",
+          "backslash: \\ path \\ file",
+          "control:\u0002 end",
+          "emoji: 😀😢🚀",
+          "CJK: 你好世界 漢字"
+        ]
+      },
+      "snapshot": {
+        "total": 2,
+        "running": 1,
+        "waiting": 1,
+        "completed": false,
+        "msg": "say \"hi\" \\ ctrl:\u0001 😀 漢字",
+        "entries": [
+          "quote: \"double\"",
+          "backslash: \\ path \\ file",
+          "control:\u0002 end",
+          "emoji: 😀😢🚀",
+          "CJK: 你好世界 漢字"
+        ]
+      },
+      "serialized": "{\"total\":2,\"running\":1,\"waiting\":1,\"completed\":false,\"msg\":\"say \\\"hi\\\" \\\\ ctrl:\\u0001 😀 漢字\",\"entries\":[\"quote: \\\"double\\\"\",\"backslash: \\\\ path \\\\ file\",\"control:\\u0002 end\",\"emoji: 😀😢🚀\",\"CJK: 你好世界 漢字\"]}\n",
+      "byte_length": 231,
+      "byte_length_no_newline": 230
+    }
+  ]
+}

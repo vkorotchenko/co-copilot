@@ -36,6 +36,11 @@ const uint16_t HOT   = 0xFA20;   // red-orange: warnings, impatience, deny
 const uint16_t PANEL = 0x2104;   // overlay panel background
 
 enum PersonaState { P_SLEEP, P_IDLE, P_BUSY, P_ATTENTION, P_CELEBRATE, P_DIZZY, P_HEART };
+static_assert((uint8_t)P_SLEEP == SESS_PERSONA_SLEEP
+              && (uint8_t)P_IDLE == SESS_PERSONA_IDLE
+              && (uint8_t)P_BUSY == SESS_PERSONA_BUSY
+              && (uint8_t)P_ATTENTION == SESS_PERSONA_ATTENTION,
+              "session and firmware persona numbering must stay aligned");
 const char* stateNames[] = { "sleep", "idle", "busy", "attention", "celebrate", "dizzy", "heart" };
 
 TamaState    tama;
@@ -50,7 +55,13 @@ uint8_t menuSel     = 0;
 uint8_t brightLevel = 4;           // 0..4 -> hw brightness
 bool    btnALong    = false;
 
-enum DisplayMode { DISP_NORMAL, DISP_PET, DISP_INFO, DISP_COUNT };
+enum DisplayMode { DISP_NORMAL, DISP_ACTIVITY, DISP_PET, DISP_INFO, DISP_COUNT };
+static_assert((uint8_t)DISP_NORMAL == (uint8_t)DISPLAY_PAGE_NORMAL
+              && (uint8_t)DISP_ACTIVITY == (uint8_t)DISPLAY_PAGE_ACTIVITY
+              && (uint8_t)DISP_PET == (uint8_t)DISPLAY_PAGE_PET
+              && (uint8_t)DISP_INFO == (uint8_t)DISPLAY_PAGE_INFO
+              && (uint8_t)DISP_COUNT == (uint8_t)DISPLAY_PAGE_COUNT,
+              "display page numbering must stay aligned");
 uint8_t displayMode = DISP_NORMAL;
 uint8_t infoPage = 0;
 uint8_t petPage = 0;
@@ -63,6 +74,59 @@ bool     screenOff = false;
 bool     buddyMode = false;
 bool     gifAvailable = false;
 const uint8_t SPECIES_GIF = 0xFF;   // species NVS sentinel: use the installed GIF
+
+// ── session carousel ──────────────────────────────────────────────────────
+// The bridge ranks `ss`, so index 0 is always the most urgent row. We track the
+// viewed session by its stable 12-hex display ID rather than by index, because
+// a re-rank between heartbeats would otherwise slide a different pal under the
+// user's eyes without them touching anything.
+char     selSessionId[SESSION_ID_LEN + 1] = "";
+int      selSessionIdx = -1;
+uint32_t lastCarouselMs = 0;                 // last manual carousel move
+const uint32_t CAROUSEL_HOLD_MS = 15000;     // manual browsing suppresses auto-focus
+bool     sessionStatsOpen = false;            // click toggles selected pal / stats
+char     tokenHeartOwnerId[SESSION_ID_LEN + 1] = "";
+uint32_t tokenHeartUntil = 0;
+// Previous-frame snapshot, used only to spot a row *entering* waiting/blocked.
+char     prevSessIds[MAX_SESSION_PALS][SESSION_ID_LEN + 1];
+uint8_t  prevSessStates[MAX_SESSION_PALS];
+uint8_t  prevSessCount = 0;
+
+// The pal card owns DISP_NORMAL whenever the bridge projected any session.
+static inline bool sessionsProjected() { return tama.sessions.count > 0; }
+static inline bool completionPresentationActive() {
+  return tama.completion.active && !dataDemo();
+}
+
+extern bool settingsOpen;
+extern bool resetOpen;
+
+static bool clockOwnsDisplay(bool inPrompt) {
+  return displayMode == DISP_NORMAL
+      && !menuOpen && !settingsOpen && !resetOpen && !inPrompt
+      && tama.connected
+      && !sessionsProjected()
+      && !completionPresentationActive()
+      && tama.sessionsRunning == 0 && tama.sessionsWaiting == 0
+      && dataRtcValid();
+}
+
+static DisplayOwnershipState currentDisplayOwnership(
+    bool clocking, bool completionVisible, bool liveCardVisible) {
+  DisplayOwnershipState state;
+  state.screenVisible = !screenOff;
+  state.uiOverlayVisible = menuOpen || settingsOpen || resetOpen;
+  state.passkeyVisible = blePasskey() != 0;
+  state.promptVisible = tama.promptId[0] != 0;
+  state.clockVisible = clocking;
+  state.page = (DisplayPage)displayMode;
+  state.completionVisible = completionVisible;
+  state.liveCardVisible = liveCardVisible;
+  state.hudEnabled = settings().hud;
+  state.connected = tama.connected;
+  state.transcriptRows = tama.nLines;
+  return state;
+}
 
 // On a prompt, the encoder toggles which choice is highlighted; the button
 // confirms it. Touch can also hit the on-screen buttons directly.
@@ -90,6 +154,8 @@ const uint32_t SCREEN_OFF_MS = 30000;
 
 uint32_t promptArrivedMs = 0;
 bool     responseSent = false;
+WakeInputGuard wakeInputGuard;
+bool lastBleLink = false;
 
 static void applyBrightness() { hwSetBrightness(brightLevel); }
 
@@ -107,11 +173,29 @@ static void beep(uint16_t freq, uint16_t dur) {
   if (settings().sound) hwTone(freq, dur);
 }
 
-static void sendCmd(const char* json) {
+static bool sendCmd(const char* json) {
   Serial.println(json);
   size_t n = strlen(json);
-  bleWrite((const uint8_t*)json, n);
-  bleWrite((const uint8_t*)"\n", 1);
+  size_t sent = bleWrite((const uint8_t*)json, n);
+  sent += bleWrite((const uint8_t*)"\n", 1);
+  return bleConnected() && sent == n + 1;
+}
+
+static bool sendCompletionDismiss() {
+  if (!tama.completion.pendingDismiss) return true;
+  char cmd[112];
+  snprintf(cmd, sizeof(cmd),
+    "{\"cmd\":\"completion\",\"sg\":%lu,\"g\":%lu,\"action\":\"dismiss\"}",
+    (unsigned long)tama.completion.pendingEpoch,
+    (unsigned long)tama.completion.pendingGeneration);
+  return sendCmd(cmd);
+}
+
+static void dismissCompletion() {
+  if (!tama.completion.dismissLocal()) return;
+  sendCompletionDismiss();
+  buddyInvalidate();
+  characterInvalidate();
 }
 
 const uint8_t INFO_PAGES = 7;
@@ -119,7 +203,10 @@ const uint8_t INFO_PG_CONTROLS = 1;
 const uint8_t INFO_PG_CREDITS = 6;
 
 void applyDisplayMode() {
-  bool peek = displayMode != DISP_NORMAL;
+  // Secondary pages and the selected-pal stats surface shrink the pet into the
+  // header strip. The primary pal card keeps the full-size character.
+  bool peek = displayMode == DISP_PET || displayMode == DISP_INFO
+           || (displayMode == DISP_NORMAL && sessionStatsOpen && sessionsProjected());
   characterSetPeek(peek);
   buddySetPeek(peek);
   spr.fillSprite(0x0000);
@@ -138,15 +225,20 @@ static void cline(int y, uint16_t col, uint16_t bg, const char* fmt, ...) {
 // ---------------------------------------------------------------------------
 // Menus — centered panels sized to stay inside the circle.
 // ---------------------------------------------------------------------------
-const char* menuItems[] = { "settings", "turn off", "help", "about", "demo", "close" };
-const uint8_t MENU_N = 6;
+const char* menuItems[] = {
+  "activity", "pet care", "info", "settings", "demo", "turn off", "close"
+};
+const uint8_t MENU_N = 7;
 
 bool    settingsOpen = false;
 uint8_t settingsSel  = 0;
 // Dropped vs the Stick: "led" (no user LED) and "clock rot" (round, no
 // orientation). Indices below map to applySetting().
-const char* settingsItems[] = { "brightness", "sound", "bluetooth", "wifi", "transcript", "ascii pet", "reset", "back" };
-const uint8_t SETTINGS_N = 8;
+const char* settingsItems[] = {
+  "brightness", "attitude", "sound", "bluetooth", "wifi",
+  "transcript", "ascii pet", "reset", "back"
+};
+const uint8_t SETTINGS_N = 9;
 
 bool    resetOpen = false;
 uint8_t resetSel  = 0;
@@ -159,13 +251,16 @@ static void applySetting(uint8_t idx) {
   Settings& s = settings();
   switch (idx) {
     case 0: brightLevel = (brightLevel + 1) % 5; applyBrightness(); return;
-    case 1: s.sound = !s.sound; break;
-    case 2: s.bt = !s.bt; break;     // stored preference only — BLE stays live
-    case 3: s.wifi = !s.wifi; break; // stored only — no WiFi stack linked
-    case 4: s.hud = !s.hud; break;
-    case 5: nextPet(); return;
-    case 6: resetOpen = true; resetSel = 0; resetConfirmIdx = 0xFF; return;
-    case 7: settingsOpen = false; characterInvalidate(); return;
+    case 1:
+      s.attitude = s.attitude == ATTITUDE_KIND ? ATTITUDE_ASSERTIVE : ATTITUDE_KIND;
+      break;
+    case 2: s.sound = !s.sound; break;
+    case 3: s.bt = !s.bt; break;     // stored preference only — BLE stays live
+    case 4: s.wifi = !s.wifi; break; // stored only — no WiFi stack linked
+    case 5: s.hud = !s.hud; break;
+    case 6: nextPet(); return;
+    case 7: resetOpen = true; resetSel = 0; resetConfirmIdx = 0xFF; return;
+    case 8: settingsOpen = false; characterInvalidate(); return;
   }
   settingsSave();
 }
@@ -231,10 +326,23 @@ static void drawListPanel(const char* const* items, uint8_t n, uint8_t sel,
     spr.print(items[i]);
     // settings value readouts on the right
     if (items == settingsItems) {
-      spr.setCursor(mx + mw - 40, ry);
-      if (i == 0) { spr.setTextColor(p.textDim, PANEL); spr.printf("%u/4", brightLevel); }
-      else if (i >= 1 && i <= 4) { spr.setTextColor(vals[i-1] ? GREEN : p.textDim, PANEL); spr.print(vals[i-1] ? " on" : "off"); }
-      else if (i == 5) {
+      if (i == 0) {
+        spr.setCursor(mx + mw - 40, ry);
+        spr.setTextColor(p.textDim, PANEL);
+        spr.printf("%u/4", brightLevel);
+      }
+      else if (i == 1) {
+        spr.setCursor(mx + mw - 58, ry);
+        spr.setTextColor(p.textDim, PANEL);
+        spr.print(s.attitude == ATTITUDE_KIND ? "kind" : "assertive");
+      }
+      else if (i >= 2 && i <= 5) {
+        spr.setCursor(mx + mw - 40, ry);
+        spr.setTextColor(vals[i-2] ? GREEN : p.textDim, PANEL);
+        spr.print(vals[i-2] ? " on" : "off");
+      }
+      else if (i == 6) {
+        spr.setCursor(mx + mw - 40, ry);
         uint8_t total = buddySpeciesCount() + (gifAvailable ? 1 : 0);
         uint8_t pos = buddyMode ? buddySpeciesIdx() + 1 : total;
         spr.setTextColor(p.textDim, PANEL); spr.printf("%u/%u", pos, total);
@@ -256,18 +364,35 @@ static void drawReset()    { drawListPanel(resetItems, RESET_N, resetSel, HOT, t
 
 void menuConfirm() {
   switch (menuSel) {
-    case 0: settingsOpen = true; menuOpen = false; settingsSel = 0; break;
-    case 1: hwPowerOff(); break;
-    case 2:
-    case 3:
+    case 0:
       menuOpen = false;
-      displayMode = DISP_INFO;
-      infoPage = (menuSel == 2) ? INFO_PG_CONTROLS : 0;
+      sessionStatsOpen = false;
+      displayMode = DISP_ACTIVITY;
       applyDisplayMode();
-      characterInvalidate();
       break;
-    case 4: dataSetDemo(!dataDemo()); break;
-    case 5: menuOpen = false; characterInvalidate(); break;
+    case 1:
+      menuOpen = false;
+      sessionStatsOpen = false;
+      displayMode = DISP_PET;
+      applyDisplayMode();
+      break;
+    case 2:
+      menuOpen = false;
+      sessionStatsOpen = false;
+      displayMode = DISP_INFO;
+      infoPage = INFO_PG_CONTROLS;
+      applyDisplayMode();
+      break;
+    case 3: settingsOpen = true; menuOpen = false; settingsSel = 0; break;
+    case 4:
+      dataSetDemo(!dataDemo());
+      menuOpen = false;
+      sessionStatsOpen = false;
+      displayMode = DISP_NORMAL;
+      applyDisplayMode();
+      break;
+    case 5: hwPowerOff(); break;
+    case 6: menuOpen = false; characterInvalidate(); break;
   }
 }
 
@@ -308,7 +433,7 @@ static void drawClock() {
 }
 
 PersonaState derive(const TamaState& s) {
-  if (!s.connected)            return P_IDLE;
+  if (!s.connected)            return P_SLEEP;
   if (s.sessionsWaiting > 0)   return P_ATTENTION;
   if (s.recentlyCompleted)     return P_CELEBRATE;
   // "Thinking": the agent is actively running. The bridge's running count
@@ -322,6 +447,121 @@ PersonaState derive(const TamaState& s) {
 void triggerOneShot(PersonaState s, uint32_t durMs) {
   activeState = s;
   oneShotUntil = millis() + durMs;
+}
+
+// Present queued token milestones only while the pal surface is genuinely
+// visible. Each award selects its owning pal and runs the existing heart
+// animation; missing rows are discarded instead of animating the wrong pal.
+static bool sessionHeartPoll(uint32_t now, bool canPresent) {
+  if (!canPresent || (int32_t)(now - oneShotUntil) < 0) return false;
+  char id[SESSION_ID_LEN + 1];
+  while (sessionHeartQueuePop(tama.heartAwards, id, sizeof(id))) {
+    int idx = sessionPalFind(tama.sessions, id);
+    if (idx < 0) continue;
+    strncpy(selSessionId, id, sizeof(selSessionId) - 1);
+    selSessionId[sizeof(selSessionId) - 1] = 0;
+    selSessionIdx = idx;
+    triggerOneShot(P_HEART, 1600);
+    strncpy(tokenHeartOwnerId, id, sizeof(tokenHeartOwnerId) - 1);
+    tokenHeartOwnerId[sizeof(tokenHeartOwnerId) - 1] = 0;
+    tokenHeartUntil = oneShotUntil;
+    buddyInvalidate();
+    beep(2600, 35);
+    return true;
+  }
+  return false;
+}
+
+static bool tokenHeartActive(uint32_t now) {
+  if (!tokenHeartOwnerId[0]) return false;
+  bool withinAward = (int32_t)(now - tokenHeartUntil) < 0;
+  int ownerIdx = sessionPalFind(tama.sessions, tokenHeartOwnerId);
+  if (withinAward && ownerIdx >= 0) {
+    strncpy(selSessionId, tokenHeartOwnerId, sizeof(selSessionId) - 1);
+    selSessionId[sizeof(selSessionId) - 1] = 0;
+    selSessionIdx = ownerIdx;
+    return true;
+  }
+  if (withinAward && activeState == P_HEART && oneShotUntil == tokenHeartUntil) {
+    oneShotUntil = now;
+  }
+  tokenHeartOwnerId[0] = 0;
+  tokenHeartUntil = 0;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Session carousel bookkeeping.
+//
+// Selection is keyed on the stable display ID, so a re-rank between heartbeats
+// never slides a different pal under the user. A row that *transitions* into
+// waiting/blocked pulls focus once — but only if the user has not touched the
+// dial in the last 15s, so browsing is never hijacked, and a session that sits
+// blocked forever cannot re-grab focus on every frame.
+// ---------------------------------------------------------------------------
+static void sessionSelectionUpdate(uint32_t now) {
+  SessionPalSet& set = tama.sessions;
+  if (set.count == 0) {
+    selSessionIdx = -1;
+    selSessionId[0] = 0;
+    prevSessCount = 0;
+    return;
+  }
+
+  bool browsing = lastCarouselMs && (now - lastCarouselMs) < CAROUSEL_HOLD_MS;
+  int focus = -1;
+  for (uint8_t i = 0; i < set.count && focus < 0; i++) {
+    if (!sessionStateNeedsAttention(set.pals[i].state)) continue;
+    bool known = false, wasNeedy = false;
+    for (uint8_t j = 0; j < prevSessCount; j++) {
+      if (strcmp(prevSessIds[j], set.pals[i].id) != 0) continue;
+      known = true;
+      wasNeedy = sessionStateNeedsAttention(prevSessStates[j]);
+      break;
+    }
+    if (!known || !wasNeedy) focus = i;
+  }
+  if (focus >= 0 && !browsing) {
+    strncpy(selSessionId, set.pals[focus].id, sizeof(selSessionId) - 1);
+    selSessionId[sizeof(selSessionId) - 1] = 0;
+  }
+
+  // Falls back to the highest-ranked row when the tracked ID disappeared.
+  selSessionIdx = sessionSelectionResolve(set, selSessionId, sizeof(selSessionId));
+
+  prevSessCount = set.count;
+  for (uint8_t i = 0; i < set.count; i++) {
+    memcpy(prevSessIds[i], set.pals[i].id, SESSION_ID_LEN + 1);
+    prevSessStates[i] = set.pals[i].state;
+  }
+}
+
+// Push (or withdraw) the selected session's species + palette on the renderer.
+static void sessionPalApply(bool cardActive) {
+  if (cardActive && selSessionIdx >= 0 && selSessionIdx < (int)tama.sessions.count) {
+    const SessionPal& s = tama.sessions.pals[selSessionIdx];
+    buddySetSessionPal(s.species, s.colors);
+  } else {
+    buddyClearSessionPal();
+  }
+}
+
+struct SessionAttentionFacts {
+  bool any;
+  bool anyBlocked;
+};
+
+// Bounded facts from the current projection. All cross-session attention
+// presentation consumes this same scan so visibility, chirp, and cadence
+// cannot disagree while the user is browsing a calmer pal.
+static SessionAttentionFacts sessionsAttentionFacts() {
+  SessionAttentionFacts facts = { false, false };
+  for (uint8_t i = 0; i < tama.sessions.count; i++) {
+    uint8_t state = tama.sessions.pals[i].state;
+    if (sessionStateNeedsAttention(state)) facts.any = true;
+    if (state == SESS_BLOCKED) facts.anyBlocked = true;
+  }
+  return facts;
 }
 
 // ---------------------------------------------------------------------------
@@ -373,10 +613,12 @@ void drawInfo() {
   } else if (infoPage == 1) {
     _infoHeader(p, "CONTROLS", infoPage);
     ln(p.text,    "rotary dial");
-    ln(p.textDim, "scroll / navigate");
+    ln(p.textDim, sessionsProjected() ? "browse pals / navigate"
+                                      : "scroll / navigate");
     y += 3;
     ln(p.text,    "button (press)");
-    ln(p.textDim, "next screen / select");
+    ln(p.textDim, sessionsProjected() ? "pal stats / back"
+                                      : "return to pals");
     y += 3;
     ln(p.text,    "hold button");
     ln(p.textDim, "open menu");
@@ -507,6 +749,62 @@ static void drawPetStats(const Palette& p) {
   }
 }
 
+static void drawSessionStats(const SessionPal& s, uint8_t position, uint8_t total) {
+  const uint16_t bg = s.colors[1];
+  const uint16_t text = s.colors[2], dim = s.colors[3], body = s.colors[0];
+  spr.fillRect(0, 68, W, H - 68, bg);
+  spr.setTextSize(1);
+
+  if (total > 1) {
+    cline(76, text, bg, "%s  %u/%u", buddySpeciesNameAt(s.species), position, total);
+  } else {
+    cline(76, text, bg, "%s stats", buddySpeciesNameAt(s.species));
+  }
+
+  cline(92, dim, bg, "TOKENS");
+  if (sessionUsageKnown(s) || sessionInputUsageKnown(s)) {
+    char input[12] = "-", output[12] = "-";
+    if (sessionInputUsageKnown(s)) sessionFormatTokens(s.inputTokens, input, sizeof(input));
+    if (sessionUsageKnown(s)) sessionFormatTokens(s.outputTokens, output, sizeof(output));
+    cline(104, text, bg, "in %s   out %s", input, output);
+  } else {
+    cline(104, dim, bg, "unavailable");
+  }
+
+  if (sessionUsageKnown(s)) {
+    uint32_t hearts = sessionHeartCount(s);
+    uint8_t progress = sessionHeartProgress(s);
+    tinyHeart(CX - 48, 119, true, HOT);
+    cline(119, text, bg, "%lu hearts  %u/100",
+          (unsigned long)hearts, progress);
+    const int barW = 106;
+    spr.drawRoundRect(CX - barW / 2, 129, barW, 7, 3, dim);
+    int fill = (barW - 2) * progress / SESSION_TOKENS_PER_HEART;
+    if (fill > 0) spr.fillRoundRect(CX - barW / 2 + 1, 130, fill, 5, 2, body);
+  }
+
+  cline(148, dim, bg, s.modelCount > 1 ? "MODEL  (%u used)" : "MODEL",
+        s.modelCount);
+  if (s.model[0]) cline(160, text, bg, "%s", s.model);
+  else            cline(160, dim, bg, "unavailable");
+
+  if (sessionContextKnown(s)) {
+    uint8_t pct = sessionContextPercent(s);
+    cline(179, dim, bg, "CONTEXT  %u%%", pct);
+    const int barW = 120;
+    spr.drawRoundRect(CX - barW / 2, 190, barW, 9, 4, dim);
+    int fill = (barW - 2) * pct / 100;
+    if (fill > 0) {
+      uint16_t color = pct >= 85 ? HOT : body;
+      spr.fillRoundRect(CX - barW / 2 + 1, 191, fill, 7, 3, color);
+    }
+  } else {
+    cline(181, dim, bg, "context unavailable");
+  }
+
+  cline(220, text, bg, "press: pal");
+}
+
 void drawPet() {
   const Palette& p = characterPalette();
   drawPetStats(p);
@@ -614,9 +912,13 @@ void drawHUD() {
   const int SHOW = reading ? 6 : 3;
   const int BASE = reading ? 150 : 160;
 
-  if (tama.nLines == 0) {
+  ActivityContentKind content = activityContentKind(tama.connected, tama.nLines);
+  bool transcriptVisible = activityShowsTranscript(tama.connected, tama.nLines);
+  if (content == ACTIVITY_DISCONNECTED) {
+    cline(BASE + LH, p.text, p.bg, "No Copilot connected");
+  } else if (content == ACTIVITY_MESSAGE) {
     cline(BASE + LH, p.text, p.bg, "%s", tama.msg);
-  } else {
+  } else if (transcriptVisible) {
     static char disp[HUD_ROWS_MAX][24];
     static uint8_t srcOf[HUD_ROWS_MAX];
     uint8_t nDisp = 0;
@@ -630,20 +932,177 @@ void drawHUD() {
     if (msgScroll > maxBack) msgScroll = maxBack;
     int end = (int)nDisp - msgScroll;
     int start = end - SHOW; if (start < 0) start = 0;
-    uint8_t newest = tama.nLines - 1;
     for (int i = 0; start + i < end; i++) {
       uint8_t row = start + i;
-      bool fresh = (srcOf[row] == newest) && (msgScroll == 0);
+      bool fresh = transcriptRowIsCurrent(srcOf[row], tama.nLines, msgScroll);
       cline(BASE + i * LH, fresh ? p.text : p.textDim, p.bg, "%s", disp[row]);
     }
     if (reading) cline(BASE + SHOW * LH, p.body, p.bg, "tap to exit  -%u", msgScroll);
   }
 }
 
+// ---------------------------------------------------------------------------
+// Session pal card — owns DISP_NORMAL whenever the bridge projected sessions.
+// One 2× pal is already rendered above by buddyTick(); this draws the lower
+// band: who it is, what it is doing, its state, and the roster.
+// ---------------------------------------------------------------------------
+static uint16_t sessionStateColor(const SessionPal& s) {
+  switch (s.state) {
+    case SESS_BLOCKED:  return HOT;
+    case SESS_WAITING:  return 0xFD20;      // amber
+    case SESS_WORKING:
+    case SESS_THINKING: return s.colors[0]; // body
+    default:            return s.colors[3]; // textDim
+  }
+}
+
+void drawSessionCard() {
+  const SessionPalSet& set = tama.sessions;
+  if (selSessionIdx < 0 || selSessionIdx >= (int)set.count) return;
+  const SessionPal& s = set.pals[selSessionIdx];
+  if (sessionStatsOpen) {
+    drawSessionStats(s, (uint8_t)(selSessionIdx + 1), set.count);
+    return;
+  }
+  const uint16_t bg = s.colors[1];
+  const uint16_t text = s.colors[2], dim = s.colors[3], ink = s.colors[4];
+  const bool solo = (set.count == 1);
+
+  spr.fillRect(0, 146, W, H - 146, bg);
+  spr.setTextSize(1);
+
+  // Header: species, cumulative official output tokens when available, and
+  // carousel position when there is anything to navigate.
+  if (sessionUsageKnown(s)) {
+    char tokens[12];
+    sessionFormatTokens(s.outputTokens, tokens, sizeof(tokens));
+    if (solo) cline(156, text, bg, "%s  %s tok", buddySpeciesNameAt(s.species), tokens);
+    else      cline(156, text, bg, "%s  %s  %d/%u", buddySpeciesNameAt(s.species),
+                    tokens, selSessionIdx + 1, set.count);
+  } else if (solo) {
+    cline(156, text, bg, "%s", buddySpeciesNameAt(s.species));
+  } else {
+    cline(156, text, bg, "%s  %d/%u", buddySpeciesNameAt(s.species),
+          selSessionIdx + 1, set.count);
+  }
+
+  if (dataDemoAssertive()) {
+    spr.fillRoundRect(24, 168, W - 48, 30, 7, text);
+    spr.drawRoundRect(24, 168, W - 48, 30, 7, HOT);
+    cline(183, ink, text, "GET BACK TO WORK!!");
+    cline(207, GREEN, bg, "+ SUCCESS");
+  } else {
+    // Summary: UTF-8 flattened to display columns, then wrapped to two rows so
+    // a long line degrades with ".." instead of running off the round edge.
+    char flat[SESSION_SUMMARY_BYTES + 1];
+    sessionSummaryDisplay(s.summary, flat, sizeof(flat));
+    char rows[2][23];
+    uint8_t n = sessionWrap(flat, &rows[0][0], 2, sizeof(rows[0]), 22);
+    for (uint8_t i = 0; i < n; i++) cline(174 + i * 11, dim, bg, "%s", rows[i]);
+
+    // State pill — filled in the state colour, labelled in the palette's ink.
+    const char* nm = sessionStateName(s.state);
+    uint16_t pillBg = sessionStateColor(s);
+    int pw = (int)strlen(nm) * 6 + 14;
+    int py = solo ? 204 : 199;
+    spr.fillRoundRect(CX - pw / 2, py, pw, 15, 7, pillBg);
+    spr.setTextDatum(MC_DATUM);
+    spr.setTextColor(ink, pillBg);
+    spr.drawString(nm, CX, py + 7);
+    spr.setTextDatum(TL_DATUM);
+  }
+
+  // Roster dots, one per projected session in bridge rank order. Body colour
+  // identifies each pal; the selected one gets a white ring and an ink pip,
+  // and anything needing a human gets a hot ring so it is visible while you
+  // are looking at a different pal.
+  if (solo) {
+    cline(231, text, bg, "press: stats");
+    return;
+  }
+  const int dy = 223, gap = 14;
+  int x0 = CX - (int)(set.count - 1) * gap / 2;
+  for (uint8_t i = 0; i < set.count; i++) {
+    int cx = x0 + i * gap;
+    uint16_t c = set.pals[i].colors[0];
+    if ((int)i == selSessionIdx) {
+      spr.fillCircle(cx, dy, 5, c);
+      spr.drawCircle(cx, dy, 5, 0xFFFF);
+      spr.fillCircle(cx, dy, 1, ink);
+    } else {
+      spr.fillCircle(cx, dy, 3, c);
+      if (sessionStateNeedsAttention(set.pals[i].state)) spr.drawCircle(cx, dy, 5, HOT);
+    }
+  }
+}
+
+static const int COMPLETION_PILL_Y = 194;
+static const int COMPLETION_PILL_H = 18;
+static const int COMPLETION_PILL_W = 92;
+
+static bool touchInCompletionPill(int x, int y) {
+  return x >= CX - COMPLETION_PILL_W / 2 && x <= CX + COMPLETION_PILL_W / 2
+      && y >= COMPLETION_PILL_Y && y <= COMPLETION_PILL_Y + COMPLETION_PILL_H;
+}
+
+static void drawCompletionCard(uint32_t now) {
+  const CompletionLatch& c = tama.completion.latch;
+  const bool owner = (c.flags & COMPLETION_HAS_OWNER) != 0;
+  const bool assertive = c.outcome == COMPLETION_SUCCESS
+                      && settings().attitude == ATTITUDE_ASSERTIVE;
+  const Palette& saved = characterPalette();
+  const uint16_t bg = owner ? c.colors[1] : saved.bg;
+  const uint16_t text = owner ? c.colors[2] : saved.text;
+  const uint16_t dim = owner ? c.colors[3] : saved.textDim;
+  const uint16_t ink = owner ? c.colors[4] : saved.ink;
+
+  spr.fillRect(0, 142, W, H - 142, bg);
+  spr.setTextSize(1);
+  if (owner) cline(151, text, bg, "%s", buddySpeciesNameAt(c.species));
+  else cline(151, text, bg, "%s", buddyMode ? buddySpeciesName() : petName());
+
+  if (assertive) {
+    spr.fillRoundRect(24, 159, W - 48, 30, 7, text);
+    spr.drawRoundRect(24, 159, W - 48, 30, 7, HOT);
+    cline(174, ink, text, "GET BACK TO WORK!!");
+  } else {
+    char flat[49];
+    const char* summary = owner && c.summary[0] ? c.summary : "Copilot finished";
+    sessionSummaryDisplay(summary, flat, sizeof(flat));
+    char rows[2][23];
+    uint8_t rowCount = sessionWrap(flat, &rows[0][0], 2, sizeof(rows[0]), 22);
+    for (uint8_t i = 0; i < rowCount; i++) cline(164 + i * 11, dim, bg, "%s", rows[i]);
+  }
+
+  const char* label = "FINISHED";
+  const char* glyph = "=";
+  uint16_t pill = dim;
+  if (c.outcome == COMPLETION_SUCCESS && owner) { label = "SUCCESS"; glyph = "+"; pill = GREEN; }
+  else if (c.outcome == COMPLETION_FAILED) { label = "FAILED"; glyph = "X"; pill = HOT; }
+  else if (c.outcome == COMPLETION_ABORTED) { label = "ABORTED"; glyph = "-"; pill = dim; }
+  char badge[20];
+  snprintf(badge, sizeof(badge), "%s  %s", glyph, label);
+  spr.fillRoundRect(CX - COMPLETION_PILL_W / 2, COMPLETION_PILL_Y,
+                    COMPLETION_PILL_W, COMPLETION_PILL_H, 9, pill);
+  spr.setTextDatum(MC_DATUM);
+  spr.setTextColor(ink, pill);
+  spr.drawString(badge, CX, COMPLETION_PILL_Y + COMPLETION_PILL_H / 2);
+  spr.setTextDatum(TL_DATUM);
+
+  if (c.flags & COMPLETION_HAS_DURATION) {
+    char elapsed[COMPLETION_DURATION_TEXT_MAX];
+    completionFormatDuration(c.durationSeconds, elapsed, sizeof(elapsed));
+    cline(218, dim, bg, "%s", elapsed);
+  }
+  if (completionAffordanceVisible(tama.completion, now))
+    cline(231, text, bg, "press: clear");
+}
+
 // Pulsing attention ring at the screen edge (replaces the Stick's red LED).
-static void drawAttentionRing() {
+// `urgent` (a blocked session or a live prompt) pulses twice as fast.
+static void drawAttentionRing(bool urgent) {
   const Palette& p = characterPalette();
-  bool on = (millis() / 400) % 2;
+  bool on = (millis() / (urgent ? 200 : 400)) % 2;
   uint16_t c = on ? HOT : p.bg;
   spr.drawCircle(CX, CY, RAD - 1, c);
   spr.drawCircle(CX, CY, RAD - 2, c);
@@ -660,11 +1119,13 @@ static int encFastCount = 0;
 
 // Returns net detent steps since last call (one detent = 4 encoder counts) and
 // flags a fast spin for the dizzy easter egg.
-static int readEncoder(bool& fastSpin) {
+static int readEncoder(bool& fastSpin, bool& rawMoved) {
   fastSpin = false;
+  rawMoved = false;
   int32_t now = M5Dial.Encoder.read();
   int32_t d = now - encPrev;
   encPrev = now;
+  rawMoved = d != 0;
   if (d == 0) return 0;
   encAccum += d;
   int steps = encAccum / 4;
@@ -712,6 +1173,10 @@ void setup() {
   M5Dial.BtnA.setHoldThresh(600);   // match the 600ms long-press used in loop()
   applyBrightness();
   lastInteractMs = millis();
+  wakeInputGuard.reset();
+  tama.completion.reset();
+  sessionHeartTrackerClear(tama.heartTracker);
+  sessionHeartQueueClear(tama.heartAwards);
 
   // Allocate the 240x240 canvas (~112KB) before BLE grabs heap, so the large
   // contiguous block isn't fragmented away.
@@ -761,6 +1226,9 @@ void loop() {
   uint32_t now = millis();
 
   dataPoll(&tama);
+  bool bleLink = bleConnected();
+  if (bleLink && !lastBleLink && tama.completion.pendingDismiss) sendCompletionDismiss();
+  lastBleLink = bleLink;
 
   // --- OTA in progress: take over the screen, suspend everything else -------
   // Each loop dataPoll() drained pending BLE bytes into Update.write(); just
@@ -794,17 +1262,51 @@ void loop() {
   }
 
   if (statsPollLevelUp()) triggerOneShot(P_CELEBRATE, 3000);
+
+  if (!sessionsProjected() && sessionStatsOpen) {
+    sessionStatsOpen = false;
+    applyDisplayMode();
+  }
+
   baseState = derive(tama);
+
+  // Per-session persona: the pal on screen animates its *own* lifecycle state,
+  // not the aggregate. A passive "completed" celebration still wins, matching
+  // the previous behaviour. A live prompt is an attention floor, so the
+  // selected pal may decorate/raise that state but never lower it to idle/busy.
+  bool promptLive = tama.promptId[0] != 0;
+  SessionAttentionFacts sessionAttention = sessionsAttentionFacts();
+  bool blockedAttention = tama.sessionsWaiting > 0 || sessionAttention.any;
+  bool overlayOpen = menuOpen || settingsOpen || resetOpen;
+  bool completionVisible = completionCardVisible(
+    completionPresentationActive(), displayMode == DISP_NORMAL, !screenOff, otaActive(),
+    blePasskey() != 0, promptLive, blockedAttention, overlayOpen);
+  bool tokenHeartPlaying = tokenHeartActive(now);
+  if (!completionVisible && !tokenHeartPlaying) sessionSelectionUpdate(now);
+  bool cardOwnsHome = sessionsProjected() && displayMode == DISP_NORMAL;
+  bool selectedPersonaActive = cardOwnsHome && !completionVisible
+                            && selSessionIdx >= 0
+                            && selSessionIdx < (int)tama.sessions.count
+                            && !tama.recentlyCompleted;
+  uint8_t selectedPersona = selectedPersonaActive
+    ? sessionStateToPersona(tama.sessions.pals[selSessionIdx].state)
+    : (uint8_t)baseState;
+  baseState = (PersonaState)sessionEffectivePersona(
+    (uint8_t)baseState, promptLive, selectedPersonaActive, selectedPersona);
 
   if (baseState == P_IDLE && (int32_t)(now - wakeTransitionUntil) < 0) baseState = P_SLEEP;
   if ((int32_t)(now - oneShotUntil) >= 0) activeState = baseState;
 
   // attention buzzer chirp (the ring is drawn in the render section)
-  if (activeState == P_ATTENTION && settings().sound) {
+  // Any projected session waiting on a human still chirps while you browse a
+  // calmer pal — the point is that you notice, not that you are staring at it.
+  bool needsHuman = sessionNeedsHuman(
+    promptLive, blockedAttention, (uint8_t)activeState);
+  if (needsHuman && settings().sound) {
     static uint32_t lastChirp = 0;
     // Urgent (a real approval prompt is up) chirps often; a plain "your turn"
     // wait just gives a gentle periodic reminder so it isn't naggy.
-    uint32_t interval = tama.promptId[0] ? 2000 : 20000;
+    uint32_t interval = sessionChirpIntervalMs(promptLive);
     if (now - lastChirp > interval) { lastChirp = now; hwTone(1200, 60); }
   }
 
@@ -827,33 +1329,58 @@ void loop() {
   }
 
   bool inPrompt = tama.promptId[0] && !responseSent;
+  bool assertiveSuccess = completionVisible
+                       && tama.completion.latch.outcome == COMPLETION_SUCCESS
+                       && settings().attitude == ATTITUDE_ASSERTIVE;
+  if (!dataDemo()) {
+    if (tama.completion.active
+        && (assertiveSuccess || !completionIntroActive(tama.completion, now)))
+      tama.completion.introConsumed = true;
+    if (tama.completion.active && !completionVisible) tama.completion.introConsumed = true;
+  }
+
+  clockRefreshRtc();
+  bool clocking = clockOwnsDisplay(inPrompt);
+  bool inputLiveCard = sessionsProjected() && displayMode == DISP_NORMAL
+                    && !clocking && !completionVisible;
+  DisplayOwnershipState inputOwnership = currentDisplayOwnership(
+    clocking, completionVisible, inputLiveCard);
+  bool transcriptOwned = transcriptOwnsDisplay(inputOwnership);
 
   // --- read inputs ---------------------------------------------------------
-  bool fastSpin = false;
-  int enc = readEncoder(fastSpin);
+  bool fastSpin = false, encoderMoved = false;
+  int enc = readEncoder(fastSpin, encoderMoved);
   bool click = M5Dial.BtnA.wasClicked();
   bool longPress = M5Dial.BtnA.pressedFor(600) && !btnALong;
   bool released = M5Dial.BtnA.wasReleased();
 
   // touch
   bool touched = false; int tx = 0, ty = 0;
-  if (M5Dial.Touch.getCount()) {
+  bool touchActive = M5Dial.Touch.getCount() > 0;
+  if (touchActive) {
     auto d = M5Dial.Touch.getDetail();
     if (d.wasPressed()) { touched = true; tx = d.x; ty = d.y; }
   }
 
-  // Any input wakes the screen. Snapshot the off-state *before* wake() clears
-  // it, so a wake interaction doesn't also act this frame.
+  bool buttonDown = M5Dial.BtnA.isPressed();
   bool wasOff = screenOff;
-  bool anyInput = enc != 0 || click || touched || M5Dial.BtnA.isPressed();
+  bool anyInput = encoderMoved || click || touched || buttonDown;
   if (anyInput) wake();
-  if (wasOff) {
-    // consumed solely as a wake; don't act this frame
-    enc = 0; click = false; touched = false; longPress = false;
+  if (wasOff && anyInput) wakeInputGuard.woke(now, buttonDown);
+  if (wakeInputGuard.consume(now, buttonDown, encoderMoved, touchActive)) {
+    enc = 0; click = false; touched = false; longPress = false; fastSpin = false;
   }
 
+  // The carousel owns the encoder on the pal card, so a fast browse must not
+  // also make the pal dizzy. Suppress *before* the global dizzy branch; dizzy
+  // still works everywhere else, including the legacy home screen.
+  bool carouselOwnsEncoder = cardOwnsHome && !sessionStatsOpen && !tokenHeartPlaying
+                          && !completionVisible && !menuOpen && !settingsOpen
+                          && !resetOpen && !inPrompt;
+
   // fast encoder spin -> dizzy (replaces the Stick's shake)
-  if (fastSpin && !menuOpen && !settingsOpen && !resetOpen && !inPrompt &&
+  if (fastSpin && !tokenHeartPlaying && !carouselOwnsEncoder
+      && !menuOpen && !settingsOpen && !resetOpen && !inPrompt &&
       (int32_t)(now - oneShotUntil) >= 0) {
     triggerOneShot(P_DIZZY, 2000);
   }
@@ -863,10 +1390,14 @@ void loop() {
     btnALong = true;
     beep(800, 60);
     if (resetOpen) resetOpen = false;
-    else if (settingsOpen) { settingsOpen = false; characterInvalidate(); }
+    else if (settingsOpen) {
+      settingsOpen = false;
+      menuOpen = true;
+      menuSel = 3;
+      characterInvalidate();
+    }
     else { menuOpen = !menuOpen; menuSel = 0; if (!menuOpen) characterInvalidate(); }
   }
-  if (released) btnALong = false;
 
   // --- encoder: navigate / scroll -----------------------------------------
   if (enc != 0) {
@@ -884,12 +1415,30 @@ void loop() {
       infoPage = (infoPage + (enc > 0 ? 1 : INFO_PAGES - 1)) % INFO_PAGES; beep(1800, 20);
     } else if (displayMode == DISP_PET) {
       petPage = (petPage + (enc > 0 ? 1 : PET_PAGES - 1)) % PET_PAGES; applyDisplayMode(); beep(1800, 20);
-    } else {
-      // home: scroll transcript (line-by-line through the wrapped history)
-      int ns = (int)msgScroll + (enc > 0 ? 1 : -1);
-      if (ns < 0) ns = 0; if (ns > HUD_ROWS_MAX - 1) ns = HUD_ROWS_MAX - 1;
-      msgScroll = ns; beep(1500, 15);
+    } else if (carouselOwnsEncoder) {
+      // pal card: one detent = one pal, a fast spin jumps three.
+      int step = (enc > 0 ? 1 : -1) * (fastSpin ? 3 : 1);
+      selSessionIdx = sessionSelectionStep(tama.sessions, selSessionId,
+                                           sizeof(selSessionId), step);
+      lastCarouselMs = now;          // start the 15s auto-focus hold
+      buddyInvalidate();
+      beep(1800, 20);
+    } else if (transcriptOwned) {
+      // legacy home / activity: scroll transcript (line-by-line through history)
+      if (transcriptScroll(transcriptOwned, msgScroll, enc, HUD_ROWS_MAX - 1))
+        beep(1500, 15);
     }
+  }
+
+  // --- completion dismissal: short click or a tap on the visible pill ----
+  bool completionPillTap = touched && touchInCompletionPill(tx, ty);
+  bool dismissGesture = completionDismissGestureAllowed(
+    completionVisible, click && !btnALong, completionPillTap, encoderMoved, longPress || btnALong);
+  if (dismissGesture) {
+    dismissCompletion();
+    click = false;
+    touched = false;
+    completionVisible = false;
   }
 
   // --- button click: select / advance -------------------------------------
@@ -902,13 +1451,34 @@ void loop() {
       applySetting(settingsSel); beep(2400, 30);
     } else if (menuOpen) {
       menuConfirm(); beep(2400, 30);
-    } else {
-      // home/info/pet: advance to next screen
-      displayMode = (displayMode + 1) % DISP_COUNT;
+    } else if (cardOwnsHome) {
+      sessionStatsOpen = !sessionStatsOpen;
       applyDisplayMode();
       beep(1800, 30);
+    } else if (displayMode != DISP_NORMAL) {
+      sessionStatsOpen = false;
+      displayMode = DISP_NORMAL;
+      applyDisplayMode();
+      beep(1800, 30);
+    } else {
+      // The primary surface has no generic click action without a projected
+      // pal. Secondary screens are intentionally reached from the long-press
+      // menu instead of cycling through them accidentally.
     }
   }
+
+  // A click can change the page or close a UI overlay. Re-derive ownership
+  // before a simultaneous touch is allowed to act on transcript state.
+  clocking = clockOwnsDisplay(tama.promptId[0] && !responseSent);
+  completionVisible = completionCardVisible(
+    completionPresentationActive(), displayMode == DISP_NORMAL, !screenOff, otaActive(),
+    blePasskey() != 0, tama.promptId[0] != 0, blockedAttention,
+    menuOpen || settingsOpen || resetOpen);
+  inputLiveCard = sessionsProjected() && displayMode == DISP_NORMAL
+               && !clocking && !completionVisible;
+  inputOwnership = currentDisplayOwnership(
+    clocking, completionVisible, inputLiveCard);
+  transcriptOwned = transcriptOwnsDisplay(inputOwnership);
 
   // --- touch: approve/deny buttons, or wake -------------------------------
   if (touched && !inPrompt && menuOpen) {
@@ -918,11 +1488,21 @@ void loop() {
     if (touchInButton(tx, ty, APPR_APPR_CX)) doApprove();
     else if (touchInButton(tx, ty, APPR_DENY_CX)) doDeny();
   }
-  // Home: a tap closes the scrolled-back transcript reader and returns to live.
+  if (released) btnALong = false;
+
+  // Transcript reader: a tap closes the scrolled-back view and returns to live.
+  // It lives on DISP_ACTIVITY once the pal card owns home, on home otherwise.
   if (touched && !inPrompt && !menuOpen && !settingsOpen && !resetOpen &&
-      displayMode == DISP_NORMAL && msgScroll > 0) {
-    msgScroll = 0; beep(1500, 20);
+      transcriptClose(transcriptOwned, msgScroll)) {
+    beep(1500, 20);
   }
+
+  bool browsing = lastCarouselMs && (now - lastCarouselMs) < CAROUSEL_HOLD_MS;
+  sessionHeartPoll(
+    now,
+    sessionsProjected() && displayMode == DISP_NORMAL && !completionVisible
+      && !inPrompt && !menuOpen && !settingsOpen && !resetOpen
+      && !blockedAttention && !screenOff && !browsing);
 
   static uint32_t lastPasskey = 0;
   uint32_t pk = blePasskey();
@@ -933,15 +1513,13 @@ void loop() {
   // The M5Dial can't sense USB power (no PMIC via M5Unified), so the clock
   // shows whenever the link is idle and the RTC has been synced; the idle
   // screen-off timer below still sleeps it on battery after 30s.
-  clockRefreshRtc();
-  bool clocking = displayMode == DISP_NORMAL
-               && !menuOpen && !settingsOpen && !resetOpen && !inPrompt
-               && tama.sessionsRunning == 0 && tama.sessionsWaiting == 0
-               && dataRtcValid();
+  clocking = clockOwnsDisplay(tama.promptId[0] && !responseSent);
   // The pet only "peeks" (shrinks to the top band) for the approval prompt, so
   // its animation stays above the panel and never flickers. On the clock the
   // pet now stays full size (2×) — date/time sits above it, session info below.
-  bool petPeek = tama.promptId[0];
+  bool petPeek = tama.promptId[0]
+              || (sessionStatsOpen && sessionsProjected()
+                  && displayMode == DISP_NORMAL && !completionVisible);
   static bool wasPeek = false;
   if (petPeek != wasPeek) {
     if (petPeek) {
@@ -981,14 +1559,69 @@ void loop() {
   }
 
   // --- render pet into the sprite -----------------------------------------
+  completionVisible = completionCardVisible(
+    completionPresentationActive(), displayMode == DISP_NORMAL, !screenOff, otaActive(),
+    blePasskey() != 0, tama.promptId[0] != 0,
+    blockedAttention,
+    menuOpen || settingsOpen || resetOpen);
+  bool completionOwner = completionVisible
+                      && (tama.completion.latch.flags & COMPLETION_HAS_OWNER);
+  bool liveCardActive = sessionsProjected() && displayMode == DISP_NORMAL
+                     && !clocking && !completionVisible;
+  DisplayOwnershipState renderOwnership = currentDisplayOwnership(
+    clocking, completionVisible, liveCardActive);
+  DisplaySurfaceOwner displayOwner = displaySurfaceOwner(renderOwnership);
+  if (completionOwner) {
+    buddySetSessionPal(tama.completion.latch.species, tama.completion.latch.colors);
+  } else {
+    sessionPalApply(liveCardActive);
+  }
+  static bool wasCard = false;
+  bool anyCard = liveCardActive || completionVisible;
+  if (anyCard != wasCard) {
+    spr.fillSprite(0x0000);
+    characterInvalidate();
+    buddyInvalidate();
+    wasCard = anyCard;
+  }
+
+  bool completionIntro = completionVisible && completionIntroActive(tama.completion, now);
+  bool completionSettled = completionVisible && !completionIntro;
+  bool kindCompletion = completionVisible
+                     && tama.completion.latch.outcome == COMPLETION_SUCCESS
+                     && settings().attitude == ATTITUDE_KIND;
+  PersonaState renderState = activeState;
+  if (dataDemoAssertive() && liveCardActive) renderState = P_ATTENTION;
+  if (completionVisible) {
+    if (tama.completion.latch.outcome == COMPLETION_SUCCESS)
+      renderState = kindCompletion ? P_CELEBRATE : P_ATTENTION;
+    else if (tama.completion.latch.outcome == COMPLETION_FAILED)
+      renderState = completionIntro ? P_ATTENTION : P_IDLE;
+    else renderState = completionIntro ? P_BUSY : P_IDLE;
+  }
+
   if (screenOff) {
     // nothing
-  } else if (buddyMode) {
-    buddyTick(activeState);
+  } else if (buddyMode || liveCardActive || completionOwner) {
+    characterSetFrozen(false);
+    if (completionSettled) buddyTickStill(renderState);
+    else if (kindCompletion)
+      buddyTickCompletionCelebrate((uint32_t)(now - tama.completion.latch.startedAt));
+    else buddyTick(renderState);
   } else if (characterLoaded()) {
-    characterSetState(activeState);
-    characterTick();
+    characterSetState(renderState);
+    if (completionSettled) {
+      if (!characterFrameRendered()) {
+        characterSetFrozen(false);
+        characterTick();
+      }
+      characterSetFrozen(true);
+    } else {
+      characterSetFrozen(false);
+      characterTick();
+    }
   } else {
+    characterSetFrozen(false);
     const Palette& p = characterPalette();
     spr.fillSprite(p.bg);
     if (xferActive()) {
@@ -1005,14 +1638,28 @@ void loop() {
 
   // --- overlays ------------------------------------------------------------
   if (!screenOff) {
-    if (blePasskey()) drawPasskey();
-    else if (tama.promptId[0]) drawApproval();   // modal: a pending question always wins
-    else if (clocking) drawClock();
-    else if (displayMode == DISP_INFO) drawInfo();
-    else if (displayMode == DISP_PET) drawPet();
-    else if (settings().hud) drawHUD();
+    switch (displayOwner) {
+      case DISPLAY_SURFACE_PASSKEY:    drawPasskey(); break;
+      case DISPLAY_SURFACE_PROMPT:     drawApproval(); break;
+      case DISPLAY_SURFACE_CLOCK:      drawClock(); break;
+      case DISPLAY_SURFACE_INFO:       drawInfo(); break;
+      case DISPLAY_SURFACE_PET:        drawPet(); break;
+      case DISPLAY_SURFACE_TRANSCRIPT:
+      case DISPLAY_SURFACE_HUD:        drawHUD(); break;
+      case DISPLAY_SURFACE_COMPLETION: drawCompletionCard(now); break;
+      case DISPLAY_SURFACE_LIVE_CARD:  drawSessionCard(); break;
+      case DISPLAY_SURFACE_UI_OVERLAY:
+      case DISPLAY_SURFACE_NONE:       break;
+    }
 
-    if (activeState == P_ATTENTION && !menuOpen && !settingsOpen && !resetOpen) drawAttentionRing();
+    // The full edge ring and chirp share the same current attention floor. A
+    // calm selected pal cannot hide another row that is waiting or blocked.
+    bool ringUrgent = sessionAttentionRingUrgent(
+      promptLive, sessionAttention.anyBlocked);
+    bool ringVisible = sessionAttentionRingVisible(
+      promptLive, blockedAttention, (uint8_t)activeState);
+    if (ringVisible && !menuOpen && !settingsOpen && !resetOpen)
+      drawAttentionRing(ringUrgent);
 
     if (resetOpen) drawReset();
     else if (settingsOpen) drawSettings();

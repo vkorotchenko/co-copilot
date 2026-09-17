@@ -1,0 +1,536 @@
+{
+  "generated_by": "firmware/test/fixtures/generate.js",
+  "species": [
+    "capybara",
+    "duck",
+    "goose",
+    "blob",
+    "cat",
+    "dragon",
+    "octopus",
+    "owl",
+    "penguin",
+    "turtle",
+    "snail",
+    "ghost",
+    "axolotl",
+    "cactus",
+    "robot",
+    "rabbit",
+    "mushroom",
+    "chonk"
+  ],
+  "cases": [
+    {
+      "name": "legacy-no-sessions",
+      "note": "no explicit sessions: sv/ss absent entirely",
+      "line": "{\"total\":0,\"running\":0,\"waiting\":0,\"completed\":false,\"msg\":\"idle\",\"entries\":[]}\n",
+      "expect": {
+        "version": 0,
+        "count": 0,
+        "pals": []
+      }
+    },
+    {
+      "name": "single-working",
+      "note": "one session with full official stats and no carousel chrome on device",
+      "line": "{\"total\":1,\"running\":1,\"waiting\":0,\"completed\":false,\"msg\":\"working...\",\"entries\":[],\"sv\":1,\"ss\":[{\"i\":\"9f7ab40e5235\",\"p\":1,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 1 doing work\",\"u\":123456,\"q\":654321,\"d\":\"gpt-5.6-sol\",\"v\":1,\"x\":[42000,128000]}]}\n",
+      "expect": {
+        "version": 1,
+        "count": 1,
+        "pals": [
+          {
+            "id": "9f7ab40e5235",
+            "species": 1,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 1 doing work",
+            "output_tokens": 123456,
+            "input_tokens": 654321,
+            "model": "gpt-5.6-sol",
+            "model_count": 1,
+            "context": [
+              42000,
+              128000
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "eight-max",
+      "note": "exactly the device projection cap",
+      "line": "{\"total\":8,\"running\":8,\"waiting\":0,\"completed\":false,\"msg\":\"working...\",\"entries\":[],\"sv\":1,\"ss\":[{\"i\":\"9a31babb0aec\",\"p\":8,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 8 doing work\"},{\"i\":\"269b312a9e5b\",\"p\":7,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 7 doing work\"},{\"i\":\"2fbe31b0851e\",\"p\":6,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 6 doing work\"},{\"i\":\"2242891988de\",\"p\":5,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 5 doing work\"},{\"i\":\"503330697660\",\"p\":4,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 4 doing work\"},{\"i\":\"ba73b88efcdc\",\"p\":3,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 3 doing work\"},{\"i\":\"bd6e3e69bf02\",\"p\":2,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 2 doing work\"},{\"i\":\"9f7ab40e5235\",\"p\":1,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 1 doing work\"}]}\n",
+      "expect": {
+        "version": 1,
+        "count": 8,
+        "pals": [
+          {
+            "id": "9a31babb0aec",
+            "species": 8,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 8 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "269b312a9e5b",
+            "species": 7,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 7 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "2fbe31b0851e",
+            "species": 6,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 6 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "2242891988de",
+            "species": 5,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 5 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "503330697660",
+            "species": 4,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 4 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "ba73b88efcdc",
+            "species": 3,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 3 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "bd6e3e69bf02",
+            "species": 2,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 2 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "9f7ab40e5235",
+            "species": 1,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 1 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "nine-truncated",
+      "note": "bridge drops the lowest-ranked row; device still sees 8",
+      "line": "{\"total\":9,\"running\":9,\"waiting\":0,\"completed\":false,\"msg\":\"working...\",\"entries\":[],\"sv\":1,\"ss\":[{\"i\":\"85bd072ce971\",\"p\":9,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 9 doing work\"},{\"i\":\"9a31babb0aec\",\"p\":8,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 8 doing work\"},{\"i\":\"269b312a9e5b\",\"p\":7,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 7 doing work\"},{\"i\":\"2fbe31b0851e\",\"p\":6,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 6 doing work\"},{\"i\":\"2242891988de\",\"p\":5,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 5 doing work\"},{\"i\":\"503330697660\",\"p\":4,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 4 doing work\"},{\"i\":\"ba73b88efcdc\",\"p\":3,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 3 doing work\"},{\"i\":\"bd6e3e69bf02\",\"p\":2,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 2 doing work\"}]}\n",
+      "expect": {
+        "version": 1,
+        "count": 8,
+        "pals": [
+          {
+            "id": "85bd072ce971",
+            "species": 9,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 9 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "9a31babb0aec",
+            "species": 8,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 8 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "269b312a9e5b",
+            "species": 7,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 7 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "2fbe31b0851e",
+            "species": 6,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 6 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "2242891988de",
+            "species": 5,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 5 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "503330697660",
+            "species": 4,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 4 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "ba73b88efcdc",
+            "species": 3,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 3 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "bd6e3e69bf02",
+            "species": 2,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 2 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "ranking-blocked-first",
+      "note": "ranking is the inverse of the numeric state codes",
+      "line": "{\"total\":5,\"running\":2,\"waiting\":2,\"completed\":false,\"msg\":\"blocked\",\"entries\":[],\"sv\":1,\"ss\":[{\"i\":\"bd6e3e69bf02\",\"p\":2,\"c\":[2047,0,65535,33808,0],\"s\":4,\"m\":\"session 2 doing work\"},{\"i\":\"ba73b88efcdc\",\"p\":3,\"c\":[2047,0,65535,33808,0],\"s\":3,\"m\":\"session 3 doing work\"},{\"i\":\"2242891988de\",\"p\":5,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 5 doing work\"},{\"i\":\"503330697660\",\"p\":4,\"c\":[2047,0,65535,33808,0],\"s\":1,\"m\":\"session 4 doing work\"},{\"i\":\"9f7ab40e5235\",\"p\":1,\"c\":[2047,0,65535,33808,0],\"s\":0,\"m\":\"session 1 doing work\"}]}\n",
+      "expect": {
+        "version": 1,
+        "count": 5,
+        "pals": [
+          {
+            "id": "bd6e3e69bf02",
+            "species": 2,
+            "state": 4,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 2 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "ba73b88efcdc",
+            "species": 3,
+            "state": 3,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 3 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "2242891988de",
+            "species": 5,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 5 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "503330697660",
+            "species": 4,
+            "state": 1,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 4 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          },
+          {
+            "id": "9f7ab40e5235",
+            "species": 1,
+            "state": 0,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 1 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "utf8-summary",
+      "note": "48-byte UTF-8 clamp must not split a code point",
+      "line": "{\"total\":1,\"running\":1,\"waiting\":0,\"completed\":false,\"msg\":\"working...\",\"entries\":[],\"sv\":1,\"ss\":[{\"i\":\"9f7ab40e5235\",\"p\":1,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"héllo wörld ✅ ünïcode padding text that ru\"}]}\n",
+      "expect": {
+        "version": 1,
+        "count": 1,
+        "pals": [
+          {
+            "id": "9f7ab40e5235",
+            "species": 1,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "héllo wörld ✅ ünïcode padding text that ru",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "ended-excluded",
+      "note": "ended rows never reach the wire",
+      "line": "{\"total\":1,\"running\":1,\"waiting\":0,\"completed\":false,\"msg\":\"working...\",\"entries\":[],\"sv\":1,\"ss\":[{\"i\":\"9f7ab40e5235\",\"p\":1,\"c\":[2047,0,65535,33808,0],\"s\":2,\"m\":\"session 1 doing work\"}]}\n",
+      "expect": {
+        "version": 1,
+        "count": 1,
+        "pals": [
+          {
+            "id": "9f7ab40e5235",
+            "species": 1,
+            "state": 2,
+            "colors": [
+              2047,
+              0,
+              65535,
+              33808,
+              0
+            ],
+            "summary": "session 1 doing work",
+            "output_tokens": null,
+            "input_tokens": null,
+            "model": null,
+            "model_count": null,
+            "context": null
+          }
+        ]
+      }
+    }
+  ]
+}
