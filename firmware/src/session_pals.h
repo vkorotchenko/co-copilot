@@ -208,13 +208,13 @@ inline void sessionPalsDemoApply(uint8_t scenario, SessionPalSet& set) {
     "000000000001", "000000000002", "000000000003",
     "000000000004", "000000000005",
   };
-  static const uint8_t species[SESSION_DEMO_PALS] = { 10, 6, 1, 7, 14 };
+  static const uint8_t species[SESSION_DEMO_PALS] = { 9, 8, 6, 13, 16 };
   static const uint16_t colors[SESSION_DEMO_PALS][5] = {
-    { 48465, 0, 65535, 33808, 0 },
-    { 2047, 0, 65535, 33808, 0 },
-    { 65504, 0, 65535, 33808, 0 },
-    { 31727, 0, 65535, 33808, 0 },
-    { 64495, 0, 65535, 33808, 0 },
+    { 0x07E0, 0, 65535, 33808, 0 },
+    { 0x041F, 0, 65535, 33808, 0 },
+    { 0xA01F, 0, 65535, 33808, 0 },
+    { 0x07E0, 0, 65535, 33808, 0 },
+    { 0xF810, 0, 65535, 33808, 0 },
   };
   static const char* const summaries[SESSION_DEMO_PALS] = {
     "Reviewing a pull request",

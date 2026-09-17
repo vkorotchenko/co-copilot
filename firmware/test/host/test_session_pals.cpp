@@ -1009,10 +1009,16 @@ static void testDemoProjection() {
   CHECK(first.count == 5);
   CHECK(waiting.count == first.count);
 
+  const uint8_t expectedSpecies[SESSION_DEMO_PALS] = { 9, 8, 6, 13, 16 };
+  const uint16_t expectedBodyColors[SESSION_DEMO_PALS] = {
+    0x07E0, 0x041F, 0xA01F, 0x07E0, 0xF810,
+  };
   for (uint8_t i = 0; i < first.count; i++) {
     CHECK(sessionIdValid(first.pals[i].id));
     CHECK_STR(first.pals[i].id, waiting.pals[i].id);
     CHECK(first.pals[i].species == waiting.pals[i].species);
+    CHECK(first.pals[i].species == expectedSpecies[i]);
+    CHECK(first.pals[i].colors[0] == expectedBodyColors[i]);
     CHECK(first.pals[i].outputTokens != SESSION_USAGE_UNKNOWN);
     CHECK(first.pals[i].inputTokens != SESSION_USAGE_UNKNOWN);
     CHECK(first.pals[i].model[0] != 0);
