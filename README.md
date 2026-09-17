@@ -168,6 +168,9 @@ their own pals; their work is summarized by the parent orchestrator.
 - **Two to eight** — rotate to browse. A `2/5` counter and a row of body-colour
   dots show where you are; the selected dot is ringed in white, and any pal
   waiting on you is ringed in red so you can see it while looking at another.
+- A red circled number at the top right shows how many projected pals are
+  currently `waiting` or `blocked`, including while you browse another pal or
+  its stats.
 - Each pal animates its **own** state (thinking/working → busy, waiting/blocked
   → attention), not a blended average.
 - Press the selected pal to open its stats: cumulative input and output tokens,
@@ -175,8 +178,10 @@ their own pals; their work is summarized by the parent orchestrator.
   context progress area.
 - **Demo** opens a stable five-pal roster and returns directly to the home card.
   Rotate the encoder to browse those pals and press to inspect their fake stats,
-  using the same carousel path as live sessions. Its automatic roll includes
-  both a Kind celebration and an Assertive `GET BACK TO WORK!!` phase.
+  using the same carousel path as live sessions. Every five seconds all five
+  pals switch together through idle, thinking, working, waiting, blocked, Kind
+  celebration, and Assertive `GET BACK TO WORK!!` phases. The bottom state
+  label and animation are driven by that same global demo state.
 - Every 100 new output tokens queues one heart animation for that pal. The first
   reading after a device or bridge restart establishes a baseline, so historical
   tokens do not replay as a burst of hearts.

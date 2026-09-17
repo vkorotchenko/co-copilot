@@ -182,9 +182,23 @@ inline void sessionPalsClear(SessionPalSet& set) {
   set.count   = 0;
 }
 
-static const uint8_t SESSION_DEMO_SCENARIOS = 6;
+static const uint8_t SESSION_DEMO_SCENARIOS = 7;
 static const uint8_t SESSION_DEMO_PALS = 5;
-static const uint8_t SESSION_DEMO_ASSERTIVE = 5;
+static const uint8_t SESSION_DEMO_COMPLETED = 5;
+static const uint8_t SESSION_DEMO_ASSERTIVE = 6;
+
+inline uint8_t sessionDemoState(uint8_t scenario) {
+  static const uint8_t states[SESSION_DEMO_SCENARIOS] = {
+    SESS_IDLE,
+    SESS_THINKING,
+    SESS_WORKING,
+    SESS_WAITING,
+    SESS_BLOCKED,
+    SESS_IDLE,
+    SESS_IDLE,
+  };
+  return states[scenario % SESSION_DEMO_SCENARIOS];
+}
 
 // Stable synthetic projection used by the on-device demo. IDs and roster order
 // never change, so the real selection tracker and encoder path can be exercised
@@ -220,16 +234,8 @@ inline void sessionPalsDemoApply(uint8_t scenario, SessionPalSet& set) {
     86400, 142800, 41900, 53700, 310500,
   };
   static const uint8_t modelCounts[SESSION_DEMO_PALS] = { 1, 2, 1, 1, 3 };
-  static const uint8_t states[SESSION_DEMO_SCENARIOS][SESSION_DEMO_PALS] = {
-    { SESS_IDLE,     SESS_IDLE,    SESS_IDLE,    SESS_IDLE,    SESS_IDLE },
-    { SESS_THINKING, SESS_IDLE,    SESS_IDLE,    SESS_IDLE,    SESS_IDLE },
-    { SESS_WORKING,  SESS_WORKING, SESS_WORKING, SESS_IDLE,    SESS_IDLE },
-    { SESS_WORKING,  SESS_IDLE,    SESS_IDLE,    SESS_WAITING, SESS_BLOCKED },
-    { SESS_IDLE,     SESS_IDLE,    SESS_IDLE,    SESS_IDLE,    SESS_IDLE },
-    { SESS_IDLE,     SESS_IDLE,    SESS_IDLE,    SESS_IDLE,    SESS_IDLE },
-  };
-
   scenario %= SESSION_DEMO_SCENARIOS;
+  const uint8_t state = sessionDemoState(scenario);
   memset(&set, 0, sizeof(set));
   set.version = SESSION_SCHEMA_VERSION;
   set.count = SESSION_DEMO_PALS;
@@ -237,7 +243,7 @@ inline void sessionPalsDemoApply(uint8_t scenario, SessionPalSet& set) {
     SessionPal& pal = set.pals[i];
     memcpy(pal.id, ids[i], SESSION_ID_LEN + 1);
     pal.species = species[i];
-    pal.state = states[scenario][i];
+    pal.state = state;
     memcpy(pal.colors, colors[i], sizeof(pal.colors));
     strncpy(pal.summary, summaries[i], SESSION_SUMMARY_BYTES);
     pal.summary[SESSION_SUMMARY_BYTES] = 0;
@@ -612,6 +618,21 @@ inline uint8_t sessionStateToPersona(uint8_t state) {
 
 inline bool sessionStateNeedsAttention(uint8_t state) {
   return state == SESS_WAITING || state == SESS_BLOCKED;
+}
+
+struct SessionAttentionFacts {
+  uint8_t count;
+  bool anyBlocked;
+};
+
+inline SessionAttentionFacts sessionAttentionFacts(const SessionPalSet& set) {
+  SessionAttentionFacts facts = { 0, false };
+  for (uint8_t i = 0; i < set.count; i++) {
+    uint8_t state = set.pals[i].state;
+    if (sessionStateNeedsAttention(state)) facts.count++;
+    if (state == SESS_BLOCKED) facts.anyBlocked = true;
+  }
+  return facts;
 }
 
 // Fold the aggregate persona and the selected pal's persona into the state the

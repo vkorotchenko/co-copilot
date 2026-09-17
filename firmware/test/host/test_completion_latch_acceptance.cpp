@@ -225,7 +225,8 @@ static void presentation(){std::string main=readFile(root+"/firmware/src/main.cp
  CHECK(attentionBlock.find("tama.completion.active")==std::string::npos);
  CHECK(main.find("if (!completionVisible && !tokenHeartPlaying) sessionSelectionUpdate(now);")!=std::string::npos);
  CHECK(main.find("cardOwnsHome && !completionVisible")!=std::string::npos);
- CHECK(main.find("SessionAttentionFacts sessionAttention = sessionsAttentionFacts();")!=std::string::npos);
+ CHECK(main.find("SessionAttentionFacts sessionAttention = sessionAttentionFacts(tama.sessions);")!=std::string::npos);
+ CHECK(main.find("sessionAttention.count > 0")!=std::string::npos);
  CHECK(main.find("promptLive, sessionAttention.anyBlocked")!=std::string::npos);
  CHECK(main.find("selectedBlocked")==std::string::npos);
  CHECK(card.find("selSession")==std::string::npos&&card.find("lastCarouselMs")==std::string::npos);

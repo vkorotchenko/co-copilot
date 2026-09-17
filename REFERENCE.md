@@ -496,6 +496,18 @@ ID disappears — ended, evicted, or pushed past the projection cap — the devi
 to the highest-ranked row. A row that *transitions* into `waiting` or `blocked`
 pulls focus once, unless the dial moved in the previous 15 seconds.
 
+The top-right red circled count is the number of currently projected rows in
+`waiting` or `blocked`. It remains visible across the carousel, pal stats,
+transcript, pet, info, and approval surfaces, but yields to pairing and local
+menu/settings overlays. Idle, thinking, and working pals are not included.
+
+Demo mode keeps one global state for its five fake pals. On a five-second
+cadence, the whole roster moves through `idle`, `thinking`, `working`,
+`waiting`, `blocked`, Kind celebration, and Assertive completion together. The
+state pill and rendered animation consume the same phase; Demo also bypasses
+leftover live one-shot animations so a prior heart or celebration cannot make
+the label and pose disagree.
+
 **Palettes** are applied through the species catalog rather than through
 per-session art. Each species declares a `bodyColor` and paints its body with
 that exact RGB565 literal, so the shared renderer can substitute `c[0]` for it.

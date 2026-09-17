@@ -546,24 +546,6 @@ static void sessionPalApply(bool cardActive) {
   }
 }
 
-struct SessionAttentionFacts {
-  bool any;
-  bool anyBlocked;
-};
-
-// Bounded facts from the current projection. All cross-session attention
-// presentation consumes this same scan so visibility, chirp, and cadence
-// cannot disagree while the user is browsing a calmer pal.
-static SessionAttentionFacts sessionsAttentionFacts() {
-  SessionAttentionFacts facts = { false, false };
-  for (uint8_t i = 0; i < tama.sessions.count; i++) {
-    uint8_t state = tama.sessions.pals[i].state;
-    if (sessionStateNeedsAttention(state)) facts.any = true;
-    if (state == SESS_BLOCKED) facts.anyBlocked = true;
-  }
-  return facts;
-}
-
 // ---------------------------------------------------------------------------
 // Info / pet / passkey / approval / HUD — centered for the round screen.
 // ---------------------------------------------------------------------------
@@ -956,6 +938,18 @@ static uint16_t sessionStateColor(const SessionPal& s) {
   }
 }
 
+static void drawSessionAttentionCount(uint8_t count) {
+  if (count == 0) return;
+  char value[4];
+  snprintf(value, sizeof(value), "%u", count);
+  spr.setTextDatum(MC_DATUM);
+  spr.setTextSize(2);
+  spr.setTextColor(RED);
+  spr.drawCircle(190, 40, 11, RED);
+  spr.drawString(value, 190, 40);
+  spr.setTextDatum(TL_DATUM);
+}
+
 void drawSessionCard() {
   const SessionPalSet& set = tama.sessions;
   if (selSessionIdx < 0 || selSessionIdx >= (int)set.count) return;
@@ -1001,8 +995,9 @@ void drawSessionCard() {
     for (uint8_t i = 0; i < n; i++) cline(174 + i * 11, dim, bg, "%s", rows[i]);
 
     // State pill — filled in the state colour, labelled in the palette's ink.
-    const char* nm = sessionStateName(s.state);
-    uint16_t pillBg = sessionStateColor(s);
+    const bool demoCelebrate = dataDemoCompleted();
+    const char* nm = demoCelebrate ? "celebrate" : sessionStateName(s.state);
+    uint16_t pillBg = demoCelebrate ? GREEN : sessionStateColor(s);
     int pw = (int)strlen(nm) * 6 + 14;
     int py = solo ? 204 : 199;
     spr.fillRoundRect(CX - pw / 2, py, pw, 15, 7, pillBg);
@@ -1275,8 +1270,8 @@ void loop() {
   // the previous behaviour. A live prompt is an attention floor, so the
   // selected pal may decorate/raise that state but never lower it to idle/busy.
   bool promptLive = tama.promptId[0] != 0;
-  SessionAttentionFacts sessionAttention = sessionsAttentionFacts();
-  bool blockedAttention = tama.sessionsWaiting > 0 || sessionAttention.any;
+  SessionAttentionFacts sessionAttention = sessionAttentionFacts(tama.sessions);
+  bool blockedAttention = tama.sessionsWaiting > 0 || sessionAttention.count > 0;
   bool overlayOpen = menuOpen || settingsOpen || resetOpen;
   bool completionVisible = completionCardVisible(
     completionPresentationActive(), displayMode == DISP_NORMAL, !screenOff, otaActive(),
@@ -1294,8 +1289,11 @@ void loop() {
   baseState = (PersonaState)sessionEffectivePersona(
     (uint8_t)baseState, promptLive, selectedPersonaActive, selectedPersona);
 
-  if (baseState == P_IDLE && (int32_t)(now - wakeTransitionUntil) < 0) baseState = P_SLEEP;
-  if ((int32_t)(now - oneShotUntil) >= 0) activeState = baseState;
+  if (!dataDemo() && baseState == P_IDLE
+      && (int32_t)(now - wakeTransitionUntil) < 0) {
+    baseState = P_SLEEP;
+  }
+  if (dataDemo() || (int32_t)(now - oneShotUntil) >= 0) activeState = baseState;
 
   // attention buzzer chirp (the ring is drawn in the render section)
   // Any projected session waiting on a human still chirps while you browse a
@@ -1379,7 +1377,7 @@ void loop() {
                           && !resetOpen && !inPrompt;
 
   // fast encoder spin -> dizzy (replaces the Stick's shake)
-  if (fastSpin && !tokenHeartPlaying && !carouselOwnsEncoder
+  if (fastSpin && !dataDemo() && !tokenHeartPlaying && !carouselOwnsEncoder
       && !menuOpen && !settingsOpen && !resetOpen && !inPrompt &&
       (int32_t)(now - oneShotUntil) >= 0) {
     triggerOneShot(P_DIZZY, 2000);
@@ -1576,6 +1574,18 @@ void loop() {
   } else {
     sessionPalApply(liveCardActive);
   }
+  uint8_t attentionBadgeCount =
+    displayOwner != DISPLAY_SURFACE_NONE
+    && displayOwner != DISPLAY_SURFACE_UI_OVERLAY
+    && displayOwner != DISPLAY_SURFACE_PASSKEY
+      ? sessionAttention.count
+      : 0;
+  static uint8_t previousAttentionBadgeCount = 0;
+  if (attentionBadgeCount != previousAttentionBadgeCount) {
+    previousAttentionBadgeCount = attentionBadgeCount;
+    buddyInvalidate();
+    characterInvalidate();
+  }
   static bool wasCard = false;
   bool anyCard = liveCardActive || completionVisible;
   if (anyCard != wasCard) {
@@ -1651,6 +1661,10 @@ void loop() {
       case DISPLAY_SURFACE_UI_OVERLAY:
       case DISPLAY_SURFACE_NONE:       break;
     }
+
+    // Show the number of projected pals that need the user while browsing any
+    // ordinary surface. Pairing and local UI panels keep full display ownership.
+    if (attentionBadgeCount > 0) drawSessionAttentionCount(attentionBadgeCount);
 
     // The full edge ring and chirp share the same current attention floor. A
     // calm selected pal cannot hide another row that is waiting or blocked.

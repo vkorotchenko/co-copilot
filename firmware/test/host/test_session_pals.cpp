@@ -805,6 +805,31 @@ static void testStateAndPalette() {
 
 // ──────────────── 9. prompt attention floor ────────────────
 static void testPromptAttentionFloor() {
+  begin("attention-count/waiting and blocked pals only");
+  {
+    SessionPalSet set;
+    sessionPalsClear(set);
+    set.count = 5;
+    set.pals[0].state = SESS_IDLE;
+    set.pals[1].state = SESS_THINKING;
+    set.pals[2].state = SESS_WORKING;
+    set.pals[3].state = SESS_WAITING;
+    set.pals[4].state = SESS_BLOCKED;
+    SessionAttentionFacts facts = sessionAttentionFacts(set);
+    CHECK(facts.count == 2);
+    CHECK(facts.anyBlocked);
+
+    set.pals[4].state = SESS_IDLE;
+    facts = sessionAttentionFacts(set);
+    CHECK(facts.count == 1);
+    CHECK(!facts.anyBlocked);
+
+    set.pals[3].state = SESS_WORKING;
+    facts = sessionAttentionFacts(set);
+    CHECK(facts.count == 0);
+    CHECK(!facts.anyBlocked);
+  }
+
   begin("attention-floor/prompt plus working thinking or idle stays urgent");
   {
     const uint8_t states[] = { SESS_WORKING, SESS_THINKING, SESS_IDLE };
@@ -974,34 +999,40 @@ static void testPrimaryNavigationSource() {
 }
 
 static void testDemoProjection() {
-  begin("demo/five stable pals use the real carousel projection");
+  begin("demo/five stable pals share one global lifecycle state");
   SessionPalSet first;
-  SessionPalSet attention;
+  SessionPalSet waiting;
   sessionPalsDemoApply(0, first);
-  sessionPalsDemoApply(3, attention);
+  sessionPalsDemoApply(3, waiting);
   CHECK(first.version == SESSION_SCHEMA_VERSION);
   CHECK(first.count == SESSION_DEMO_PALS);
   CHECK(first.count == 5);
-  CHECK(attention.count == first.count);
+  CHECK(waiting.count == first.count);
 
   for (uint8_t i = 0; i < first.count; i++) {
     CHECK(sessionIdValid(first.pals[i].id));
-    CHECK_STR(first.pals[i].id, attention.pals[i].id);
-    CHECK(first.pals[i].species == attention.pals[i].species);
+    CHECK_STR(first.pals[i].id, waiting.pals[i].id);
+    CHECK(first.pals[i].species == waiting.pals[i].species);
     CHECK(first.pals[i].outputTokens != SESSION_USAGE_UNKNOWN);
     CHECK(first.pals[i].inputTokens != SESSION_USAGE_UNKNOWN);
     CHECK(first.pals[i].model[0] != 0);
     CHECK(first.pals[i].contextUsed == SESSION_USAGE_UNKNOWN);
     CHECK(first.pals[i].contextMax == SESSION_USAGE_UNKNOWN);
     CHECK(first.pals[i].state == SESS_IDLE);
+    CHECK(waiting.pals[i].state == SESS_WAITING);
   }
-  CHECK(attention.pals[0].state == SESS_WORKING);
-  CHECK(attention.pals[3].state == SESS_WAITING);
-  CHECK(attention.pals[4].state == SESS_BLOCKED);
-  SessionPalSet assertive;
-  sessionPalsDemoApply(SESSION_DEMO_ASSERTIVE, assertive);
-  for (uint8_t i = 0; i < assertive.count; i++) {
-    CHECK(assertive.pals[i].state == SESS_IDLE);
+
+  const uint8_t expectedStates[SESSION_DEMO_SCENARIOS] = {
+    SESS_IDLE, SESS_THINKING, SESS_WORKING, SESS_WAITING,
+    SESS_BLOCKED, SESS_IDLE, SESS_IDLE,
+  };
+  for (uint8_t scenario = 0; scenario < SESSION_DEMO_SCENARIOS; scenario++) {
+    SessionPalSet set;
+    sessionPalsDemoApply(scenario, set);
+    CHECK(sessionDemoState(scenario) == expectedStates[scenario]);
+    for (uint8_t i = 0; i < set.count; i++) {
+      CHECK(set.pals[i].state == expectedStates[scenario]);
+    }
   }
 
   char selected[SESSION_ID_LEN + 1] = "";
@@ -1021,15 +1052,18 @@ static void testDemoProjection() {
   }
   SessionPalSet wrapped;
   sessionPalsDemoApply(SESSION_DEMO_SCENARIOS + 3, wrapped);
-  CHECK(wrapped.pals[3].state == SESS_WAITING);
+  for (uint8_t i = 0; i < wrapped.count; i++) CHECK(wrapped.pals[i].state == SESS_WAITING);
 
   begin("demo/menu returns directly to the carousel");
   const std::string data = readFile(g_root + "/firmware/src/data.h");
   const std::string main = readFile(g_root + "/firmware/src/main.cpp");
   CHECK(data.find("sessionPalsDemoApply(_demoIdx, out->sessions)") != std::string::npos);
+  CHECK(data.find("_demoIdx == SESSION_DEMO_COMPLETED") != std::string::npos);
   CHECK(data.find("_demoIdx == SESSION_DEMO_ASSERTIVE") != std::string::npos);
   CHECK(data.find("{\"assertive\",5,0,0,false,155000}") != std::string::npos);
-  CHECK(data.find("_demoNext = millis() + 8000") != std::string::npos);
+  CHECK(data.find("DEMO_DWELL_MS = 5000") != std::string::npos);
+  CHECK(data.find("_demoNext = millis() + DEMO_DWELL_MS") != std::string::npos);
+  CHECK(data.find("_demoNext = now + DEMO_DWELL_MS") != std::string::npos);
   CHECK(data.find("(int32_t)(now - _demoNext) >= 0") != std::string::npos);
   CHECK(data.find("out->promptId[0] = 0;") != std::string::npos);
   CHECK(data.find("out->completion.active = false") == std::string::npos);
@@ -1048,6 +1082,34 @@ static void testDemoProjection() {
   CHECK(card.find("if (dataDemoAssertive())") != std::string::npos);
   CHECK(card.find("GET BACK TO WORK!!") != std::string::npos);
   CHECK(card.find("+ SUCCESS") != std::string::npos);
+  CHECK(card.find("dataDemoCompleted()") != std::string::npos);
+  CHECK(card.find("demoCelebrate ? \"celebrate\"") != std::string::npos);
+  CHECK(main.find("if (!dataDemo() && baseState == P_IDLE") != std::string::npos);
+  CHECK(main.find("if (dataDemo() || (int32_t)(now - oneShotUntil) >= 0)")
+        != std::string::npos);
+  CHECK(main.find("if (fastSpin && !dataDemo()") != std::string::npos);
+  size_t attentionCountStart = main.find("static void drawSessionAttentionCount");
+  size_t attentionCountEnd = main.find("void drawSessionCard()", attentionCountStart);
+  CHECK(attentionCountStart != std::string::npos && attentionCountEnd != std::string::npos);
+  std::string attentionCount = main.substr(
+    attentionCountStart, attentionCountEnd - attentionCountStart);
+  CHECK(attentionCount.find("spr.setTextColor(RED)") != std::string::npos);
+  CHECK(attentionCount.find("characterPalette") == std::string::npos);
+  CHECK(attentionCount.find("spr.drawCircle(190, 40, 11, RED)") != std::string::npos);
+  CHECK(attentionCount.find("spr.drawString(value, 190, 40)") != std::string::npos);
+  CHECK(attentionCount.find("fillCircle") == std::string::npos);
+  CHECK(attentionCount.find("fillRoundRect") == std::string::npos);
+  CHECK(main.find("previousAttentionBadgeCount = attentionBadgeCount") != std::string::npos);
+  CHECK(main.find("if (attentionBadgeCount != previousAttentionBadgeCount)")
+        != std::string::npos);
+  size_t badgeInvalidation = main.find(
+    "if (attentionBadgeCount != previousAttentionBadgeCount)");
+  size_t petRender = main.find("if (screenOff) {", badgeInvalidation);
+  CHECK(badgeInvalidation != std::string::npos);
+  CHECK(petRender != std::string::npos);
+  CHECK(badgeInvalidation < petRender);
+  CHECK(main.find("if (attentionBadgeCount > 0) drawSessionAttentionCount(attentionBadgeCount);")
+        != std::string::npos);
   CHECK(main.find("if (dataDemoAssertive() && liveCardActive) renderState = P_ATTENTION;")
         != std::string::npos);
 }

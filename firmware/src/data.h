@@ -39,7 +39,7 @@ struct TamaState {
 
 // ---------------------------------------------------------------------------
 // Three modes, checked in priority order:
-//   demo   → auto-cycle a browsable fake pal roster every 8s, ignore live data
+//   demo   → auto-cycle a browsable fake pal roster every 5s, ignore live data
 //   live   → JSON arrived in the last 10s over USB or BT
 //   asleep → no data, all zeros, "No Copilot connected"
 // ---------------------------------------------------------------------------
@@ -49,11 +49,15 @@ static uint32_t _lastBtByteMs = 0;   // hasClient() lies; track actual BT traffi
 static bool     _demoMode   = false;
 static uint8_t  _demoIdx    = 0;
 static uint32_t _demoNext   = 0;
+static const uint32_t DEMO_DWELL_MS = 5000;
 
 struct _Fake { const char* n; uint8_t t,r,w; bool c; uint32_t tok; };
 static const _Fake _FAKES[] = {
-  {"all idle",5,0,0,false,12000}, {"thinking",5,1,0,false,32000},
-  {"team busy",5,3,0,false,89000}, {"attention",5,1,2,false,112000},
+  {"idle",5,0,0,false,12000},
+  {"thinking",5,5,0,false,32000},
+  {"working",5,5,0,false,89000},
+  {"waiting",5,0,5,false,112000},
+  {"blocked",5,0,5,false,128000},
   {"completed",5,0,0,true,142000},
   {"assertive",5,0,0,false,155000},
 };
@@ -62,9 +66,12 @@ static_assert(sizeof(_FAKES) / sizeof(_FAKES[0]) == SESSION_DEMO_SCENARIOS,
 
 inline void dataSetDemo(bool on) {
   _demoMode = on;
-  if (on) { _demoIdx = 0; _demoNext = millis() + 8000; }
+  if (on) { _demoIdx = 0; _demoNext = millis() + DEMO_DWELL_MS; }
 }
 inline bool dataDemo() { return _demoMode; }
+inline bool dataDemoCompleted() {
+  return _demoMode && _demoIdx == SESSION_DEMO_COMPLETED;
+}
 inline bool dataDemoAssertive() {
   return _demoMode && _demoIdx == SESSION_DEMO_ASSERTIVE;
 }
@@ -199,7 +206,7 @@ inline void dataPoll(TamaState* out) {
   if (_demoMode) {
     if ((int32_t)(now - _demoNext) >= 0) {
       _demoIdx = (_demoIdx + 1) % SESSION_DEMO_SCENARIOS;
-      _demoNext = now + 8000;
+      _demoNext = now + DEMO_DWELL_MS;
     }
     const _Fake& s = _FAKES[_demoIdx];
     out->sessionsTotal=s.t; out->sessionsRunning=s.r; out->sessionsWaiting=s.w;
