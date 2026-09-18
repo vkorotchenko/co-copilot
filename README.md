@@ -9,6 +9,53 @@ The original buddy relies on the **Claude desktop app**, which natively scans
 for the device over Bluetooth and streams session data to it. Copilot has no
 such built-in bridge — so co-mpanion ships that piece itself.
 
+## See co-mpanion in action
+
+The pal carousel gives each Copilot conversation its own character, color,
+summary, and state. Rotate the M5Dial to browse active sessions, then press a
+pal to open its usage details.
+
+![The co-mpanion demo carousel showing idle, thinking, working, waiting, blocked, and completed session pals](docs/readme-assets/pal-screenshots/demo-pal-carousel-gallery.png)
+
+### States and species
+
+Pals animate to match the current work state and completion attitude.
+
+![The co-mpanion animation states and Assertive completion attitude](docs/readme-assets/pal-screenshots/pal-state-gallery.png)
+
+The bridge assigns one of 18 available ASCII species to each conversation.
+
+![All 18 co-mpanion ASCII pal species](docs/readme-assets/pal-screenshots/pal-species-gallery.png)
+
+### Demo phases
+
+Demo mode advances the five-pal roster through the same synchronized phases
+used by live sessions.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/readme-assets/pal-screenshots/demo-phase-01-idle.png" alt="An idle snail pal" width="240"><br><strong>Idle</strong><br>Ready for the next task.</td>
+    <td align="center"><img src="docs/readme-assets/pal-screenshots/demo-phase-02-thinking.png" alt="A thinking octopus pal" width="240"><br><strong>Thinking</strong><br>Planning the next step.</td>
+    <td align="center"><img src="docs/readme-assets/pal-screenshots/demo-phase-03-working.png" alt="A working duck pal" width="240"><br><strong>Working</strong><br>Running active work.</td>
+    <td align="center"><img src="docs/readme-assets/pal-screenshots/demo-phase-04-waiting.png" alt="A waiting owl pal" width="240"><br><strong>Waiting</strong><br>Needs your response.</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/readme-assets/pal-screenshots/demo-phase-05-blocked.png" alt="A blocked robot pal" width="240"><br><strong>Blocked</strong><br>Needs your attention.</td>
+    <td align="center"><img src="docs/readme-assets/pal-screenshots/demo-phase-06-celebrate.png" alt="A celebrating snail pal" width="240"><br><strong>Celebrate</strong><br>Shows Kind-mode success.</td>
+    <td align="center"><img src="docs/readme-assets/pal-screenshots/demo-phase-07-assertive.png" alt="A snail pal showing an Assertive completion message" width="240"><br><strong>Assertive</strong><br>Prompts you to keep moving.</td>
+    <td></td>
+  </tr>
+</table>
+
+### Pal details and completion
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/readme-assets/pal-screenshots/demo-mushroom-stats.png" alt="A mushroom pal stats screen" width="320"><br><strong>Pal stats</strong><br>Review tokens and model usage.</td>
+    <td align="center"><img src="docs/readme-assets/pal-screenshots/completion-attitude-gallery.png" alt="Kind and Assertive successful completion screens" width="582"><br><strong>Completion attitudes</strong><br>Choose a celebration or a direct reminder.</td>
+  </tr>
+</table>
+
 ```
 ┌────────────────────┐   reads    ┌──────────────────────┐   BLE / NUS   ┌────────────┐
 │ GitHub Copilot CLI │ ─────────▶ │  co-mpanion bridge   │ ────JSON────▶ │  firmware  │
