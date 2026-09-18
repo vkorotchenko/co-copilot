@@ -1,4 +1,4 @@
-# co-mpanion
+# co-copilot
 
 A tiny desk-buddy for **GitHub Copilot CLI** users. It mirrors the experience of
 [`claude-desktop-buddy`](../claude-desktop-buddy): a small ESP32 pet (an
@@ -7,25 +7,25 @@ shows recent activity on its round screen.
 
 The original buddy relies on the **Claude desktop app**, which natively scans
 for the device over Bluetooth and streams session data to it. Copilot has no
-such built-in bridge — so co-mpanion ships that piece itself.
+such built-in bridge — so co-copilot ships that piece itself.
 
-## See co-mpanion in action
+## See co-copilot in action
 
 The pal carousel gives each Copilot conversation its own character, color,
 summary, and state. Rotate the M5Dial to browse active sessions, then press a
 pal to open its usage details.
 
-![The co-mpanion demo carousel showing idle, thinking, working, waiting, blocked, and completed session pals](docs/readme-assets/pal-screenshots/demo-pal-carousel-gallery.png)
+![The co-copilot demo carousel showing idle, thinking, working, waiting, blocked, and completed session pals](docs/readme-assets/pal-screenshots/demo-pal-carousel-gallery.png)
 
 ### States and species
 
 Pals animate to match the current work state and completion attitude.
 
-![The co-mpanion animation states and Assertive completion attitude](docs/readme-assets/pal-screenshots/pal-state-gallery.png)
+![The co-copilot animation states and Assertive completion attitude](docs/readme-assets/pal-screenshots/pal-state-gallery.png)
 
 The bridge assigns one of 18 available ASCII species to each conversation.
 
-![All 18 co-mpanion ASCII pal species](docs/readme-assets/pal-screenshots/pal-species-gallery.png)
+![All 18 co-copilot ASCII pal species](docs/readme-assets/pal-screenshots/pal-species-gallery.png)
 
 ### Demo phases
 
@@ -58,7 +58,7 @@ used by live sessions.
 
 ```
 ┌────────────────────┐   reads    ┌──────────────────────┐   BLE / NUS   ┌────────────┐
-│ GitHub Copilot CLI │ ─────────▶ │  co-mpanion bridge   │ ────JSON────▶ │  firmware  │
+│ GitHub Copilot CLI │ ─────────▶ │  co-copilot bridge   │ ────JSON────▶ │  firmware  │
 │  (~/.copilot/…)     │  store +   │  (Node.js, BLE       │  heartbeat    │ (M5Dial)   │
 │                     │  logs      │   central)           │  snapshots    │            │
 └────────────────────┘            └──────────────────────┘               └────────────┘
@@ -70,7 +70,7 @@ used by live sessions.
 | --- | --- |
 | `firmware/` | The ESP32 device firmware (forked from `claude-desktop-buddy`, rebranded for Copilot). Build with PlatformIO. |
 | `bridge/` | **New.** A Node.js host app that acts as the BLE central, reads Copilot CLI state from `~/.copilot`, and streams it to the device. |
-| `REFERENCE.md` | The BLE Nordic-UART wire protocol both sides speak, including co-mpanion extensions. |
+| `REFERENCE.md` | The BLE Nordic-UART wire protocol both sides speak, including co-copilot extensions. |
 | `Makefile` | Build / USB-upload / OTA-flash / cut a release. Run `make help`. |
 
 ## How it works
@@ -261,11 +261,15 @@ make install
 This is the whole "clone → install → use" path. It:
 
 1. installs the bridge's Node dependencies (`npm install`),
-2. registers co-mpanion in `~/.copilot/mcp-config.json` as an **HTTP** MCP server
+2. registers co-copilot in `~/.copilot/mcp-config.json` as an **HTTP** MCP server
    (merging with any servers you already have), and
 3. installs a small **background service** that keeps one bridge running and
    owns the device across every Copilot session and reboots — **launchd** on
    macOS, **systemd `--user`** on Linux.
+
+Re-running `make install` after upgrading a pre-rename checkout removes the
+previous MCP entry and managed service before installing co-copilot, so only
+one bridge owns the BLE device and local MCP port.
 
 Then **restart any running Copilot session** so it picks up the new MCP config,
 and you're done — the buddy wakes up when you work, the session orchestrator can
@@ -321,7 +325,7 @@ npm start          # stream your live Copilot activity (passive telemetry only)
 
 ## Status & caveats
 
-co-mpanion is a maker/hobby tool, not an official GitHub product.
+co-copilot is a maker/hobby tool, not an official GitHub product.
 
 > ⚠️ **Experimental usage integration:** The bridge currently reads the
 > Copilot CLI's `assistant_usage_events` materialization in

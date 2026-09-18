@@ -20,7 +20,7 @@ const { flashFirmware } = require('../src/ota/flasher');
 async function main() {
   // a ~50KB random "image"
   const total = 50000;
-  const bin = path.join(os.tmpdir(), `co-mpanion-ota-test-${process.pid}.bin`);
+  const bin = path.join(os.tmpdir(), `co-copilot-ota-test-${process.pid}.bin`);
   fs.writeFileSync(bin, crypto.randomBytes(total));
   const md5 = crypto.createHash('md5').update(fs.readFileSync(bin)).digest('hex');
 

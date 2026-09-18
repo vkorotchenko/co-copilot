@@ -1,6 +1,6 @@
-# co-mpanion bridge
+# co-copilot bridge
 
-The Copilot-side host app. It is the BLE **central**: it scans for a co-mpanion
+The Copilot-side host app. It is the BLE **central**: it scans for a co-copilot
 device, connects, and streams your **GitHub Copilot CLI** activity to it as
 newline-delimited JSON "heartbeat" snapshots (see `../REFERENCE.md`).
 
@@ -93,7 +93,7 @@ npm run mcp     # bridge + MCP server on http://127.0.0.1:4317/mcp
 ### Recommended — `make install` (HTTP + managed background service)
 
 From the repo root, `make install` does everything: installs deps, registers
-co-mpanion as a **`type:"http"`** MCP server in `~/.copilot/mcp-config.json`, and
+co-copilot as a **`type:"http"`** MCP server in `~/.copilot/mcp-config.json`, and
 installs a per-user background service (launchd on macOS, systemd `--user` on
 Linux) that keeps **one** bridge running and owning the device. That single
 shared bridge is the key: a Copilot session can spawn several processes
@@ -106,7 +106,7 @@ The MCP entry it writes is simply:
 ```json
 {
   "mcpServers": {
-    "co-mpanion": { "type": "http", "url": "http://127.0.0.1:4317/mcp", "tools": ["*"] }
+    "co-copilot": { "type": "http", "url": "http://127.0.0.1:4317/mcp", "tools": ["*"] }
   }
 }
 ```
@@ -141,10 +141,10 @@ know you need this.
 ```json
 {
   "mcpServers": {
-    "co-mpanion": {
+    "co-copilot": {
       "type": "local",
       "command": "node",
-      "args": ["/abs/path/to/co-mpanion/bridge/src/index.js", "--mcp-stdio"],
+      "args": ["/abs/path/to/co-copilot/bridge/src/index.js", "--mcp-stdio"],
       "tools": ["*"]
     }
   }

@@ -25,9 +25,9 @@ function parseArgs(argv) {
   return a;
 }
 
-const HELP = `co-mpanion bridge — stream GitHub Copilot CLI activity to a BLE desk-buddy.
+const HELP = `co-copilot bridge — stream GitHub Copilot CLI activity to a BLE desk-buddy.
 
-Usage: co-mpanion [options]
+Usage: co-copilot [options]
 
 Options:
   -s, --simulate     Stream scripted fake activity instead of reading Copilot.
@@ -168,7 +168,7 @@ async function runFlash(transport, binPath) {
         resolve();
       }
     });
-    transport.on('scanning', () => log.info('Waiting for a co-mpanion device to flash...'));
+    transport.on('scanning', () => log.info('Waiting for a co-copilot device to flash...'));
     transport.start();
   });
 }

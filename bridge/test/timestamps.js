@@ -137,9 +137,9 @@ assert.strictEqual(
   formatEntry({
     time: parseUtc('2026-09-16T21:08:56.212Z'),
     userMessage: '<system_reminder>only noise</system_reminder>',
-    repository: '', cwd: '/work/co-mpanion',
+    repository: '', cwd: '/work/co-copilot',
   }),
-  `${localHhmm(ISO_MS)} (co-mpanion)`,
+  `${localHhmm(ISO_MS)} (co-copilot)`,
   'a pure-wrapper turn falls back to the repo/cwd label'
 );
 

@@ -1,4 +1,4 @@
-# co-mpanion — build, flash, and release orchestration.
+# co-copilot — build, flash, and release orchestration.
 #
 # The firmware is a PlatformIO project (firmware/, env `m5dial`); the bridge is
 # a Node.js app (bridge/). Cut a release by pushing a `firmware-v*` tag — the
@@ -39,7 +39,7 @@ bridge-test: ## Run the bridge test suite
 	cd bridge && npm test
 
 # ---- install (managed background service + MCP registration) --------------
-# The "clone -> install -> use" path: deps, register co-mpanion as an HTTP MCP
+# The "clone -> install -> use" path: deps, register co-copilot as an HTTP MCP
 # server in ~/.copilot/mcp-config.json, and install a per-user background service
 # (launchd on macOS, systemd --user on Linux) so one bridge always owns the
 # device. Idempotent; re-run any time.
@@ -52,15 +52,15 @@ uninstall: ## Stop + remove the background service and the MCP registration
 
 service-restart: ## Restart the background bridge service
 	@case "$$(uname)" in \
-	  Darwin) launchctl kickstart -k gui/$$(id -u)/com.co-mpanion.bridge && echo "restarted (launchd)";; \
-	  Linux)  systemctl --user restart co-mpanion-bridge.service && echo "restarted (systemd)";; \
+	  Darwin) launchctl kickstart -k gui/$$(id -u)/com.co-copilot.bridge && echo "restarted (launchd)";; \
+	  Linux)  systemctl --user restart co-copilot-bridge.service && echo "restarted (systemd)";; \
 	  *) echo "Unsupported platform";; \
 	esac
 
 service-logs: ## Tail the background bridge service logs
 	@case "$$(uname)" in \
-	  Darwin) tail -f "$$HOME/Library/Logs/co-mpanion-bridge.log";; \
-	  Linux)  journalctl --user -u co-mpanion-bridge.service -f;; \
+	  Darwin) tail -f "$$HOME/Library/Logs/co-copilot-bridge.log";; \
+	  Linux)  journalctl --user -u co-copilot-bridge.service -f;; \
 	  *) echo "Unsupported platform";; \
 	esac
 
@@ -69,11 +69,27 @@ flash: build ## Build, then OTA-flash the local firmware to the device over BLE
 
 flash-release: ## OTA-flash a published release bin over BLE (usage: make flash-release VERSION=x.y.z)
 	@test -n "$(VERSION)" || { echo "Usage: make flash-release VERSION=x.y.z"; exit 1; }
-	@mkdir -p dist
-	gh release download "firmware-v$(VERSION)" --repo vkorotchenko/co-mpanion \
-		--pattern 'co-mpanion-firmware-*.bin' \
-		--output dist/co-mpanion-firmware-$(VERSION).bin --clobber
-	cd bridge && node src/index.js --flash ../dist/co-mpanion-firmware-$(VERSION).bin
+	@set -eu; \
+	tag="firmware-v$(VERSION)"; \
+	repo="vkorotchenko/co-copilot"; \
+	current="co-copilot-firmware-$(VERSION).bin"; \
+	legacy="co-mpanion-firmware-$(VERSION).bin"; \
+	assets=$$(gh release view "$$tag" --repo "$$repo" --json assets --jq '.assets[].name'); \
+	if printf '%s\n' "$$assets" | grep -Fqx "$$current"; then \
+		asset="$$current"; \
+		echo "Using release asset $$asset"; \
+	elif printf '%s\n' "$$assets" | grep -Fqx "$$legacy"; then \
+		asset="$$legacy"; \
+		echo "Current asset $$current is unavailable; using legacy asset $$asset"; \
+	else \
+		echo "Error: release $$tag has neither $$current nor $$legacy." >&2; \
+		exit 1; \
+	fi; \
+	mkdir -p dist; \
+	output="dist/$$asset"; \
+	gh release download "$$tag" --repo "$$repo" \
+		--pattern "$$asset" --output "$$output" --clobber; \
+	cd bridge && node src/index.js --flash "../$$output"
 
 # ---- release --------------------------------------------------------------
 # Auto-detects the next version from the latest `firmware-v*` tag, creates an
@@ -121,6 +137,6 @@ _release:
 		exit 1; \
 	fi; \
 	echo "Releasing firmware v$$next..."; \
-	git tag -a "$$tag" -m "co-mpanion firmware v$$next" && \
+	git tag -a "$$tag" -m "co-copilot firmware v$$next" && \
 	git push origin "$$tag" && \
 	echo "Tagged and pushed $$tag — CI will build and publish the release."

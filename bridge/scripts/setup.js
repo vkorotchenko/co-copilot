@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// One-command installer for the co-mpanion bridge.
+// One-command installer for the co-copilot bridge.
 //
 //   node scripts/setup.js              install + start
 //   node scripts/setup.js --uninstall  stop + remove
@@ -9,7 +9,7 @@
 // It makes the "clone -> install -> use" path real by doing the two manual
 // steps for you, idempotently:
 //
-//   1. Registers co-mpanion in ~/.copilot/mcp-config.json as a `type:"http"`
+//   1. Registers co-copilot in ~/.copilot/mcp-config.json as a `type:"http"`
 //      MCP server (merging, never clobbering, your other servers; backs up
 //      first). HTTP is the transport that actually works across concurrent
 //      Copilot processes — one long-lived bridge owns the single BLE link,
@@ -29,8 +29,14 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const LABEL = 'com.co-mpanion.bridge';        // launchd label / systemd unit base
-const UNIT = 'co-mpanion-bridge.service';     // systemd unit filename
+const MCP_NAME = 'co-copilot';
+const LABEL = 'com.co-copilot.bridge';        // launchd label / systemd unit base
+const UNIT = 'co-copilot-bridge.service';     // systemd unit filename
+// Remove pre-rename registrations and services so reinstalling cannot leave
+// two bridge processes competing for the same BLE device and MCP port.
+const LEGACY_MCP_NAME = 'co-mpanion';
+const LEGACY_LABEL = 'com.co-mpanion.bridge';
+const LEGACY_UNIT = 'co-mpanion-bridge.service';
 const HOME = os.homedir();
 const NODE_BIN = process.execPath;                        // absolute node path
 const BRIDGE_DIR = path.resolve(__dirname, '..');         // .../bridge
@@ -87,9 +93,10 @@ function registerMcp() {
     log(`Backed up existing config -> ${bak}`);
   }
   if (!cfg.mcpServers || typeof cfg.mcpServers !== 'object') cfg.mcpServers = {};
-  cfg.mcpServers['co-mpanion'] = { type: 'http', url: MCP_URL, tools: ['*'] };
+  delete cfg.mcpServers[LEGACY_MCP_NAME];
+  cfg.mcpServers[MCP_NAME] = { type: 'http', url: MCP_URL, tools: ['*'] };
   fs.writeFileSync(MCP_CONFIG, JSON.stringify(cfg, null, 2) + '\n');
-  log(`Registered co-mpanion (http ${MCP_URL}) in ${MCP_CONFIG}`);
+  log(`Registered ${MCP_NAME} (http ${MCP_URL}) in ${MCP_CONFIG}`);
 }
 
 function unregisterMcp() {
@@ -101,19 +108,20 @@ function unregisterMcp() {
   } catch {
     return;
   }
-  if (cfg.mcpServers && cfg.mcpServers['co-mpanion']) {
+  if (cfg.mcpServers && (cfg.mcpServers[MCP_NAME] || cfg.mcpServers[LEGACY_MCP_NAME])) {
     const bak = `${MCP_CONFIG}.bak-${stamp()}`;
     fs.writeFileSync(bak, raw);
-    delete cfg.mcpServers['co-mpanion'];
+    delete cfg.mcpServers[MCP_NAME];
+    delete cfg.mcpServers[LEGACY_MCP_NAME];
     fs.writeFileSync(MCP_CONFIG, JSON.stringify(cfg, null, 2) + '\n');
-    log(`Removed co-mpanion from ${MCP_CONFIG} (backup ${bak})`);
+    log(`Removed ${MCP_NAME} from ${MCP_CONFIG} (backup ${bak})`);
   }
 }
 
 // ---- service: macOS launchd ----------------------------------------------
 
-const plistPath = () => path.join(HOME, 'Library', 'LaunchAgents', `${LABEL}.plist`);
-const macLogPath = () => path.join(HOME, 'Library', 'Logs', 'co-mpanion-bridge.log');
+const plistPath = (label = LABEL) => path.join(HOME, 'Library', 'LaunchAgents', `${label}.plist`);
+const macLogPath = () => path.join(HOME, 'Library', 'Logs', 'co-copilot-bridge.log');
 
 function xml(s) {
   return String(s)
@@ -174,23 +182,41 @@ function macInstall() {
 }
 
 function macUninstall() {
-  const p = plistPath();
-  const dom = `gui/${process.getuid()}`;
-  try { execFileSync('launchctl', ['bootout', dom, p], { stdio: 'ignore' }); } catch { /* noop */ }
-  if (fs.existsSync(p)) { fs.unlinkSync(p); log(`Removed ${p}`); }
+  removeMacService(LABEL);
   log(`Stopped launchd service ${LABEL}`);
+}
+
+function removeMacService(label) {
+  const p = plistPath(label);
+  const dom = `gui/${process.getuid()}`;
+  let removed = false;
+  try {
+    execFileSync('launchctl', ['bootout', `${dom}/${label}`], { stdio: 'ignore' });
+    removed = true;
+  } catch {
+    try {
+      execFileSync('launchctl', ['bootout', dom, p], { stdio: 'ignore' });
+      removed = true;
+    } catch { /* noop */ }
+  }
+  if (fs.existsSync(p)) {
+    fs.unlinkSync(p);
+    log(`Removed ${p}`);
+    removed = true;
+  }
+  return removed;
 }
 
 // ---- service: Linux systemd --user ---------------------------------------
 
-const systemdPath = () => path.join(HOME, '.config', 'systemd', 'user', UNIT);
+const systemdPath = (unit = UNIT) => path.join(HOME, '.config', 'systemd', 'user', unit);
 
 function systemdUnit() {
   const envLines = Object.entries(serviceEnv())
     .map(([k, v]) => `Environment="${k}=${v}"`)
     .join('\n');
   return `[Unit]
-Description=co-mpanion bridge (GitHub Copilot CLI -> BLE desk-buddy)
+Description=co-copilot bridge (GitHub Copilot CLI -> BLE desk-buddy)
 After=network.target
 
 [Service]
@@ -219,14 +245,36 @@ function systemdInstall() {
 }
 
 function systemdUninstall() {
-  try { execFileSync('systemctl', ['--user', 'disable', '--now', UNIT], { stdio: 'ignore' }); } catch { /* noop */ }
-  const p = systemdPath();
-  if (fs.existsSync(p)) { fs.unlinkSync(p); log(`Removed ${p}`); }
-  try { execFileSync('systemctl', ['--user', 'daemon-reload'], { stdio: 'ignore' }); } catch { /* noop */ }
+  removeSystemdService(UNIT);
   log(`Stopped systemd user service ${UNIT}`);
 }
 
+function removeSystemdService(unit) {
+  let removed = false;
+  try {
+    execFileSync('systemctl', ['--user', 'disable', '--now', unit], { stdio: 'ignore' });
+    removed = true;
+  } catch { /* noop */ }
+  const p = systemdPath(unit);
+  if (fs.existsSync(p)) {
+    fs.unlinkSync(p);
+    log(`Removed ${p}`);
+    removed = true;
+  }
+  if (removed) {
+    try { execFileSync('systemctl', ['--user', 'daemon-reload'], { stdio: 'ignore' }); } catch { /* noop */ }
+  }
+  return removed;
+}
+
 // ---- driver ---------------------------------------------------------------
+
+function migrateLegacyService(platform = process.platform) {
+  let removed = false;
+  if (platform === 'darwin') removed = removeMacService(LEGACY_LABEL);
+  else if (platform === 'linux') removed = removeSystemdService(LEGACY_UNIT);
+  if (removed) log('Removed the pre-rename background service.');
+}
 
 function installService() {
   if (process.platform === 'darwin') return macInstall();
@@ -247,12 +295,14 @@ function uninstallService() {
 function main() {
   if (process.argv.includes('--uninstall')) {
     uninstallService();
+    migrateLegacyService();
     unregisterMcp();
     log('Uninstall complete.');
     return;
   }
   registerMcp();
   try {
+    migrateLegacyService();
     installService();
   } catch (e) {
     // MCP is registered; surface the service problem but don't hard-crash the
@@ -265,4 +315,18 @@ function main() {
   log('Restart any running Copilot session so it picks up the HTTP MCP config.');
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = {
+  MCP_NAME,
+  LABEL,
+  UNIT,
+  LEGACY_MCP_NAME,
+  LEGACY_LABEL,
+  LEGACY_UNIT,
+  registerMcp,
+  unregisterMcp,
+  macPlist,
+  systemdUnit,
+  migrateLegacyService,
+};

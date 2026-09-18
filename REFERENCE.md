@@ -78,10 +78,10 @@ midnight if you want a daily counter.
 If you don't receive a snapshot for ~30 seconds, treat the connection as
 dead.
 
-### Session-detail fields (co-mpanion addition)
+### Session-detail fields (co-copilot addition)
 
 > These optional fields are **not** part of the base Claude protocol — the
-> co-mpanion bridge adds them so the device can show what the live session is
+> co-copilot bridge adds them so the device can show what the live session is
 > using. Treat them as optional and tolerate their absence.
 
 | Field         | Meaning                                                              |
@@ -94,9 +94,9 @@ dead.
 `effort` is only emitted when the CLI logs it (debug-level), so it is often
 absent; render the model/tokens without it in that case.
 
-### Session projection (co-mpanion addition)
+### Session projection (co-copilot addition)
 
-The co-mpanion bridge can add `sv` and `ss` to the heartbeat. Both fields are
+The co-copilot bridge can add `sv` and `ss` to the heartbeat. Both fields are
 optional and additive. When there are no live projected sessions, **both keys
 are absent**, not an empty `ss` array, so the serialized legacy heartbeat is
 byte-identical.
@@ -305,7 +305,7 @@ Legacy snapshots without `sg` are primed on first observation so historical `com
 
 The legacy path is authoritative only while the device has never seen a modern epoch on this boot. Once `sg` has been observed, a snapshot without `sg` is read as a capability gap (a reconnect before the `cl:1` ack lands), not as a downgrade: the pulse is shadowed so its rising edge cannot be replayed later, and the latch, epoch, generation floor, suppression floor, and pending dismissal are left untouched. The same epoch and generation returning after the gap restores the original owner and outcome without replaying the introduction; a bridge that no longer holds a completion clears it authoritatively by omitting `sc`. A card that the bridge cannot acknowledge — a generation-0 legacy card under a known-modern epoch — is dismissed by raising the local suppression floor instead of queueing an unanswerable `dismiss`, so it can never reappear on the next snapshot. A genuinely old bridge (no modern epoch seen since boot) keeps the full legacy behaviour, including local dismissal and new-work clears.
 
-### How the co-mpanion bridge fills these fields
+### How the co-copilot bridge fills these fields
 
 The bridge preserves the aggregate heartbeat fields and may add the optional
 session projection above. It composes each snapshot from two evidence sources
@@ -553,7 +553,7 @@ When `prompt` is present, your device can return a response. Send one of:
 The `id` must match `prompt.id` exactly. The desktop forwards this to the
 session manager: `"once"` approves the tool call, `"deny"` rejects it.
 
-In the co-mpanion bridge the `id` prefix tells you where the question came from
+In the co-copilot bridge the `id` prefix tells you where the question came from
 and what a button press achieves:
 
 | `prompt.id` | Origin | Effect of a press |
@@ -655,13 +655,13 @@ contains a `manifest.json` with a `"name"` field, in which case that wins.
 If your device doesn't want pushed files, don't ack `char_begin`. The
 desktop times out after a few seconds and tells the user it failed.
 
-## Firmware OTA (co-mpanion extension)
+## Firmware OTA (co-copilot extension)
 
-> This section is **not** part of the base Claude protocol — it's a co-mpanion
+> This section is **not** part of the base Claude protocol — it's a co-copilot
 > addition between *its* bridge and *its* firmware, carried over the same
 > encrypted NUS link.
 
-The co-mpanion bridge can update the device firmware over the air, streaming a
+The co-copilot bridge can update the device firmware over the air, streaming a
 `.bin` straight into the inactive OTA partition. The device must have a
 **dual-bank** partition table (`app0` + `app1` + `otadata`); adopting that table
 is a flash-layout change, so it has to be flashed **once over USB**, after which
@@ -687,7 +687,7 @@ device:  {"ack":"ota_end","ok":true,"n":<final_size>}   // then the device reboo
 | `ota_begin.size` | Total image size in bytes. The device calls `Update.begin(size)` on the next OTA slot. |
 | `ota_begin.md5` | 32-hex MD5 of the whole image. The device verifies it in `Update.end()` **before** switching the boot partition, so a corrupted transfer is never booted. |
 | `ota_begin.version` | Informational; the device may refuse same/older versions. |
-| `ota_chunk.d` | Base64 of the next raw bytes (keep a chunk's whole line under the device's line buffer, ~1KB; co-mpanion uses 384-byte chunks). |
+| `ota_chunk.d` | Base64 of the next raw bytes (keep a chunk's whole line under the device's line buffer, ~1KB; co-copilot uses 384-byte chunks). |
 | `ota_end` | Finalize, verify MD5, set the boot partition, reboot. |
 | `ota_abort` | Cancel an in-progress update; the device discards the partial image. |
 

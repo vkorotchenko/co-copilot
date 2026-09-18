@@ -1,6 +1,6 @@
-# Agent instructions for co-mpanion
+# Agent instructions for co-copilot
 
-co-mpanion is a desk-buddy (an M5Dial running the firmware in `firmware/`) plus a
+co-copilot is a desk-buddy (an M5Dial running the firmware in `firmware/`) plus a
 Node bridge (`bridge/`) that streams GitHub Copilot CLI activity to it over BLE.
 When the bridge runs with `--mcp`, it exposes tools you should use so the
 physical buddy can show what's happening and ask the user real questions.

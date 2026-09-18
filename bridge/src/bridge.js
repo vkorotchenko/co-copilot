@@ -189,7 +189,7 @@ class Bridge {
     this._t.on('connected', (name) => this._onConnected(name));
     this._t.on('disconnected', () => this._onDisconnected());
     this._t.on('line', (msg) => this._onDeviceMessage(msg));
-    this._t.on('scanning', () => log.info('Waiting for a co-mpanion device...'));
+    this._t.on('scanning', () => log.info('Waiting for a co-copilot device...'));
   }
 
   start() {

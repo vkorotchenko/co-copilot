@@ -129,7 +129,7 @@ class CompanionMcpServer {
 
   _buildServer() {
     const server = new McpServer(
-      { name: 'co-mpanion', version: '0.1.0' },
+      { name: 'co-copilot', version: '0.1.0' },
       { capabilities: { tools: {} } }
     );
 
@@ -138,7 +138,7 @@ class CompanionMcpServer {
       {
         title: 'Companion status',
         description:
-          'Read the current GitHub Copilot activity as shown on the co-mpanion ' +
+          'Read the current GitHub Copilot activity as shown on the co-copilot ' +
           'device: session counts, busy/idle, recent messages, and whether a ' +
           'device is connected.',
         inputSchema: {},
@@ -153,7 +153,7 @@ class CompanionMcpServer {
       {
         title: 'Notify on device',
         description:
-          'Flash a short message on the co-mpanion device screen for a few ' +
+          'Flash a short message on the co-copilot device screen for a few ' +
           'seconds. Use for status pings ("build passed", "deploying...").',
         inputSchema: {
           message: z.string().max(23).describe('Short message (<=23 chars shown).'),
@@ -180,7 +180,7 @@ class CompanionMcpServer {
         title: 'Confirm on device',
         description:
           'Ask the user to physically approve or deny an action on the ' +
-          'co-mpanion device, then BLOCK until they press the approve (A) or ' +
+          'co-copilot device, then BLOCK until they press the approve (A) or ' +
           'deny (B) button. Returns "approved" or "denied". Use before risky or ' +
           'irreversible actions when you want a hardware confirmation. ' +
           'Simultaneous confirmations are queued and shown one at a time, in the ' +
@@ -210,7 +210,7 @@ class CompanionMcpServer {
             ? 'denied'
             : decision === 'timeout'
             ? 'timeout: no response from the device'
-            : 'unavailable: no co-mpanion device is connected';
+            : 'unavailable: no co-copilot device is connected';
         return {
           content: [{ type: 'text', text }],
           isError: decision === 'unavailable',
@@ -225,7 +225,7 @@ class CompanionMcpServer {
       {
         title: 'Begin a companion session',
         description:
-          'Register one top-level Copilot conversation with the co-mpanion bridge ' +
+          'Register one top-level Copilot conversation with the co-copilot bridge ' +
           'so the device shows what the session orchestrator is doing without ' +
           'waiting for log scraping. Call this once per user conversation. When ' +
           'the host exposes a stable conversation ID, pass it as conversation_id ' +

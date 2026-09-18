@@ -1,8 +1,8 @@
-# co-mpanion firmware release pipeline.
+# co-copilot firmware release pipeline.
 # Triggered by pushing a tag matching `firmware-v*` (e.g. `firmware-v0.2.0`),
 # which `make release-firmware-{patch,minor,major}` creates. Builds the M5Dial
 # firmware via PlatformIO and publishes a GitHub Release containing
-# `co-mpanion-firmware-<version>.bin` plus a SHA256 checksum.
+# `co-copilot-firmware-<version>.bin` plus a SHA256 checksum.
 #
 # The version from the tag is baked into the binary (FW_VERSION) so the device's
 # `status` ack reports it, and the bridge can confirm an OTA update took.
@@ -72,27 +72,27 @@ jobs:
         run: |
           mkdir -p dist
           BIN_SRC="firmware/.pio/build/m5dial/firmware.bin"
-          BIN_DST="dist/co-mpanion-firmware-${VERSION}.bin"
+          BIN_DST="dist/co-copilot-firmware-${VERSION}.bin"
           cp "$BIN_SRC" "$BIN_DST"
           # `<digest>  <filename>` with the basename so `sha256sum -c` is
           # location-independent.
-          ( cd dist && sha256sum "co-mpanion-firmware-${VERSION}.bin" > "co-mpanion-firmware-${VERSION}.bin.sha256" )
-          ls -lh "$BIN_DST" "dist/co-mpanion-firmware-${VERSION}.bin.sha256"
+          ( cd dist && sha256sum "co-copilot-firmware-${VERSION}.bin" > "co-copilot-firmware-${VERSION}.bin.sha256" )
+          ls -lh "$BIN_DST" "dist/co-copilot-firmware-${VERSION}.bin.sha256"
 
       - name: Write build summary
         run: |
-          BIN="dist/co-mpanion-firmware-${VERSION}.bin"
+          BIN="dist/co-copilot-firmware-${VERSION}.bin"
           SIZE_BYTES=$(stat -c%s "$BIN")
           SIZE_KB=$(awk "BEGIN { printf \"%.1f\", ${SIZE_BYTES} / 1024 }")
-          DIGEST=$(awk '{print $1}' "dist/co-mpanion-firmware-${VERSION}.bin.sha256")
+          DIGEST=$(awk '{print $1}' "dist/co-copilot-firmware-${VERSION}.bin.sha256")
           {
-            echo "## co-mpanion firmware ${VERSION}"
+            echo "## co-copilot firmware ${VERSION}"
             echo ""
             echo "| Field | Value |"
             echo "| --- | --- |"
             echo "| Version | \`${VERSION}\` |"
             echo "| Tag | \`${GITHUB_REF_NAME}\` |"
-            echo "| Binary | \`co-mpanion-firmware-${VERSION}.bin\` |"
+            echo "| Binary | \`co-copilot-firmware-${VERSION}.bin\` |"
             echo "| Size | ${SIZE_BYTES} bytes (${SIZE_KB} KiB) |"
             echo "| SHA256 | \`${DIGEST}\` |"
             echo "| Prerelease | ${PRERELEASE} |"
@@ -102,11 +102,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: co-mpanion firmware ${{ env.VERSION }}
+          name: co-copilot firmware ${{ env.VERSION }}
           generate_release_notes: true
           draft: false
           prerelease: ${{ env.PRERELEASE == 'true' }}
           fail_on_unmatched_files: true
           files: |
-            dist/co-mpanion-firmware-${{ env.VERSION }}.bin
-            dist/co-mpanion-firmware-${{ env.VERSION }}.bin.sha256
+            dist/co-copilot-firmware-${{ env.VERSION }}.bin
+            dist/co-copilot-firmware-${{ env.VERSION }}.bin.sha256

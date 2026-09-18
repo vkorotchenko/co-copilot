@@ -175,7 +175,7 @@ const newest = (model) => texts(model)[model.entries.length - 1];
   const rig = makeRig();
   try {
     const now = Date.now();
-    rig.addSession('sess-main', '/Users/v/workspace/arduino/co-mpanion', 'co-mpanion');
+    rig.addSession('sess-main', '/Users/v/workspace/arduino/co-copilot', 'co-copilot');
 
     // Exactly the user's history: two completed turns...
     rig.addTurn('sess-main', 0, 'i plugged in the hardware', now - 90 * 60 * 1000);

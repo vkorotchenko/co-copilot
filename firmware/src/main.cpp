@@ -648,7 +648,7 @@ void drawInfo() {
     ln(p.textDim, "%02X:%02X:%02X:%02X:%02X:%02X", mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
     if (!linked && settings().bt) {
       y += 4;
-      ln(p.text,    "run the co-mpanion");
+      ln(p.text,    "run the co-copilot");
       ln(p.text,    "bridge to connect");
     }
 
@@ -665,9 +665,9 @@ void drawInfo() {
 
   } else {
     _infoHeader(p, "CREDITS", infoPage);
-    ln(p.textDim, "co-mpanion");
+    ln(p.textDim, "co-copilot");
     ln(p.text,    "github.com/vkorotchenko");
-    ln(p.text,    "/co-mpanion");
+    ln(p.text,    "/co-copilot");
     y += 6;
     ln(p.textDim, "hardware");
     ln(p.text,    "M5Dial");

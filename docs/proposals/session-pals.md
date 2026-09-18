@@ -1,7 +1,7 @@
 # Session pals architecture proposal
 
 **Status:** Waves 1, 2, and 3 implemented
-**Directive:** `/Users/vkorotchenko/workspace/.squad/decisions/inbox/copilot-directive-co-mpanion-session-pals.md`
+**Directive:** Workspace decision for co-copilot session pals
 
 **Ownership clarification:** A projected session is one top-level Copilot user
 conversation, owned by its main agent/orchestrator. Spawned agents never create
